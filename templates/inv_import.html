@@ -1,0 +1,132 @@
+{% extends "base.html" %}
+{% block title %}Import broker files – Finance Hub{% endblock %}
+{% block page_title %}Investments — import broker files{% endblock %}
+
+{% block head %}
+<style>
+.tbl td, .tbl th { font-size:.8rem; vertical-align:middle; }
+.muted { color:var(--muted); }
+.pv { border:1px solid var(--border); border-radius:10px; padding:.7rem .9rem; margin-bottom:.6rem; background:var(--tint); }
+.pv.ok { border-color:rgba(34,197,94,.45); }
+.pv-title { font-weight:600; font-size:.88rem; }
+.dup td { opacity:.45; text-decoration:line-through; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex gap-2 mb-3">
+  <a href="{{ url_for('inv_portfolio') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Portfolio</a>
+</div>
+
+<div class="chart-card mb-3">
+  <h6><i class="bi bi-cloud-upload me-2 text-primary"></i>1 · Add files</h6>
+  <form method="post" action="{{ url_for('inv_import_preview') }}" enctype="multipart/form-data" class="row g-2 align-items-end">
+    <div class="col-md-6"><input type="file" name="files" multiple class="form-control form-control-sm" accept=".pdf,.csv,.xlsx,.xls" required></div>
+    <div class="col-md-3"><input type="password" name="password" class="form-control form-control-sm" placeholder="PDF password (PAN) if needed"></div>
+    <div class="col-md-2 d-flex align-items-center gap-1 small"><input type="checkbox" name="save_pw" value="1" checked id="sp"><label for="sp">save it</label></div>
+    <div class="col-md-1"><button class="btn btn-sm btn-primary w-100">Read</button></div>
+  </form>
+  <div class="small muted mt-2">
+    <strong>Reads:</strong> contract notes (Upstox, SBI Securities; Zerodha uses the same layout) → trades with charges ·
+    tradebook / holdings exports (CSV / XLSX, e.g. Zerodha Console, Upstox) · CDSL / NSDL CAS or the DP's holding statement → holdings of each
+    demat account, checked on <a href="{{ url_for('demat_page') }}">Demat check</a>.
+    Margin statements, weekly ledgers and NSE / BSE balance letters are recognised but have nothing to import.
+    Saved passwords are tried automatically.
+  </div>
+  <details class="small mt-2"><summary style="cursor:pointer">Brokers with a dedicated contract-note reader · adding a broker</summary>
+    <ul class="mb-1 mt-1">{% for b, n in readers %}<li>{{ b }} — {{ n }}</li>{% endfor %}
+      <li class="muted">Any other broker — generic reader for the SEBI common contract-note layout (rows only, totals checked when found)</li></ul>
+    <div class="muted">To add a broker: put a sample contract note in your Stocks folder and run
+      <code>python tools\test_contract_note.py "file.pdf" PASSWORD --text</code> in the Hub folder; then a small reader is added in
+      <code>contract_notes\</code> (see <code>contract_notes\README.md</code>) — the check must say OK before it is used.</div>
+  </details>
+</div>
+
+{% if previews %}
+<div class="chart-card mb-3">
+  <h6><i class="bi bi-eye me-2 text-primary"></i>2 · Check and import</h6>
+  {% set locked = previews|selectattr('needs_pw')|list %}
+  {% if locked %}
+  <form method="post" action="{{ url_for('inv_import_preview') }}" class="alert alert-warning py-2 d-flex flex-wrap gap-2 align-items-center" style="font-size:.82rem">
+    <i class="bi bi-lock-fill"></i> {{ locked|length }} file(s) need a password (usually your PAN):
+    {% for p in locked %}<input type="hidden" name="retry" value="{{ p.token }}">{% endfor %}
+    <input type="password" name="password" class="form-control form-control-sm" style="max-width:200px" autofocus>
+    <label class="d-flex align-items-center gap-1"><input type="checkbox" name="save_pw" value="1" checked> save</label>
+    <button class="btn btn-sm btn-warning">Open</button>
+  </form>
+  {% endif %}
+  <form method="post" action="{{ url_for('inv_import_confirm') }}">
+  {% for p in previews %}
+    <div class="pv {{ 'ok' if p.importable }}">
+      <div class="d-flex gap-2 align-items-start">
+        {% if p.importable %}<input type="checkbox" class="form-check-input mt-1" name="token" value="{{ p.token }}" {{ 'checked' if p.tick }}>{% else %}<i class="bi bi-dash-circle muted mt-1"></i>{% endif %}
+        <div class="flex-grow-1">
+          <div class="pv-title">{{ p.file }}</div>
+          {% if p.err %}<div class="small {{ 'text-warning' if p.needs_pw else 'text-danger' }}">{{ p.err }}</div>
+          {% else %}
+          <div class="small muted">
+            {{ p.pv.label or (p.pv.kind|title) }}{% if p.pv.as_of %} · {{ p.pv.as_of|short_date }}{% endif %}
+            {% if p.pv.trades %} · {{ p.pv.trades|length }} trades ({{ p.new }} new{% if p.dups %}, {{ p.dups }} already in Hub{% endif %}){% endif %}
+            {% if p.pv.holdings %} · {{ p.pv.holdings|length }} holdings{% endif %}
+            {% if p.pv.charges %} · charges ₹{{ '{:,.2f}'.format(p.pv.charges) }} spread over the trades{% endif %}
+            {% if p.pv.reader %} · read by {{ p.pv.reader }}{% endif %}
+            {% if p.pv.check == 'OK' %} · <span class="text-success">totals reconcile ✓</span>
+            {% elif p.pv.check == 'MISMATCH' %} · <span class="text-danger">totals do NOT reconcile</span>{% endif %}
+            {% if p.pv.check_detail %}<div class="muted">{{ p.pv.check_detail }}{% if p.pv.levies %} · {% for k, v in p.pv.levies.items() %}{{ k }} {{ '{:,.2f}'.format(v) }}{{ ', ' if not loop.last }}{% endfor %}{% endif %}</div>{% endif %}
+            {% if p.dup_file %} · <span class="text-warning">this file was already imported</span>{% endif %}
+          </div>
+          {% if p.pv.kind == 'depository' and p.pv.demats %}<div class="small mt-1">{% for a in p.pv.demats %}
+            <span class="chip tone-teal me-1">{{ a.depository }} · {{ a.dp_name or 'DP' }} · {{ a.masked }} · {{ a.n }} holdings{% if a.broker %} → {{ a.broker }}{% endif %}</span>{% endfor %}</div>{% endif %}
+          {% for w in p.pv.warnings %}<div class="small text-warning">{{ w }}</div>{% endfor %}
+          {% endif %}
+        </div>
+        {% if p.importable %}
+        <select name="broker_{{ p.token }}" class="form-select form-select-sm" style="width:auto">
+          {% if p.pv.kind == 'depository' %}<option value="">{{ 'demat accounts as read' if p.pv.demats else 'demat account?' }}</option>
+          {% else %}<option value="">broker?</option>
+          {% for b in brokers %}<option value="{{ b.id }}" {% if b.id|string == p.broker_id %}selected{% endif %}>{{ b.name }}</option>{% endfor %}{% endif %}
+          {% if demats and p.pv.kind in ('holdings', 'depository') %}<optgroup label="Demat account (CDSL / NSDL statement)">
+            {% for d in demats %}<option value="d{{ d.id }}">{{ d.label }}</option>{% endfor %}</optgroup>{% endif %}
+        </select>{% endif %}
+      </div>
+      {% if p.pv and (p.pv.trades or p.pv.holdings) %}
+      <details class="mt-1"><summary class="small" style="cursor:pointer">Show rows</summary>
+        <div class="table-responsive"><table class="table table-dark table-sm tbl mt-1 mb-0">
+        {% if p.pv.trades %}
+          <thead><tr><th>Date</th><th>Stock</th><th>ISIN</th><th>Side</th><th class="text-end">Qty</th><th class="text-end">Price</th><th class="text-end">Charges</th><th>Exch</th><th>Trade no</th></tr></thead>
+          <tbody>{% for t in p.pv.trades %}<tr class="{{ 'dup' if t.dup }}"><td>{{ t.date|short_date }}</td><td>{{ t.name or t.symbol }}</td><td class="muted">{{ t.isin }}</td>
+            <td class="{{ 'text-success' if t.side == 'buy' else 'text-danger' }}">{{ t.side|upper }}</td><td class="text-end">{{ '%g'|format(t.qty) }}</td>
+            <td class="text-end">{{ '{:,.2f}'.format(t.price) }}</td><td class="text-end">{{ '{:,.2f}'.format(t.charges or 0) }}</td><td>{{ t.exchange }}</td><td class="muted">{{ t.trade_id }}</td></tr>{% endfor %}</tbody>
+        {% else %}
+          <thead><tr><th>Stock</th><th>ISIN</th><th class="text-end">Qty</th><th class="text-end">Avg cost</th><th class="text-end">Price</th><th class="text-end">Value</th></tr></thead>
+          <tbody>{% for h in p.pv.holdings %}<tr><td>{{ h.name or h.symbol }}</td><td class="muted">{{ h.isin }}</td><td class="text-end">{{ '%g'|format(h.qty) }}</td>
+            <td class="text-end">{{ '{:,.2f}'.format(h.avg_cost) }}</td><td class="text-end">{{ '{:,.2f}'.format(h.close) }}</td><td class="text-end">{{ '{:,.0f}'.format(h.value) }}</td></tr>{% endfor %}</tbody>
+        {% endif %}
+        </table></div></details>
+      {% endif %}
+    </div>
+  {% endfor %}
+  {% if previews|selectattr('importable')|list %}
+  <button class="btn btn-success btn-sm"><i class="bi bi-download me-1"></i>Import ticked files</button>
+  {% endif %}
+  </form>
+</div>
+{% endif %}
+
+<div class="chart-card">
+  <h6><i class="bi bi-clock-history me-2 text-primary"></i>Imported files</h6>
+  <div class="table-responsive"><table class="table table-dark table-sm tbl mb-0">
+    <thead><tr><th>When</th><th>File</th><th>Broker</th><th>Kind</th><th>As of</th><th class="text-end">Added</th><th></th></tr></thead>
+    <tbody>
+    {% for h in hist %}
+      <tr><td>{{ (h.imported_at or '')[:16] }}</td><td>{{ h.file_name }}</td><td>{{ h.broker }}</td><td>{{ h.kind }}</td><td>{{ h.as_of|short_date if h.as_of }}</td>
+        <td class="text-end">{{ h.added }}</td>
+        <td><form method="post" action="{{ url_for('inv_import_delete', iid=h.id) }}" onsubmit="return confirm('Remove this file and the trades / holdings it added?')">
+          <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button></form></td></tr>
+    {% else %}
+      <tr><td colspan="7" class="muted text-center py-3">Nothing imported yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table></div>
+</div>
+{% endblock %}

@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block title %}Alerts – Finance Hub{% endblock %}
+{% block page_title %}Alerts &amp; month close{% endblock %}
+
+{% block head %}
+<style>
+  .al { display:flex; gap:.85rem; padding:.9rem 1rem; border:1px solid var(--border); border-left:4px solid var(--tone); border-radius:12px;
+        background:var(--card-bg); margin-bottom:.6rem; box-shadow:var(--shadow); }
+  .al .ri { width:38px; height:38px; border-radius:11px; flex:none; display:flex; align-items:center; justify-content:center; font-size:1.05rem;
+            background:color-mix(in srgb, var(--tone) 15%, transparent); color:var(--tone); }
+  .lv-danger { --tone:var(--red); } .lv-warning { --tone:var(--amber); } .lv-info { --tone:var(--indigo); }
+  .ring { width:84px; height:84px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center; font-weight:800;
+          background:conic-gradient(var(--tone) calc(var(--p) * 1%), var(--tint2) 0); position:relative; }
+  .ring::before { content:''; position:absolute; inset:9px; border-radius:50%; background:var(--card-bg); }
+  .ring span { position:relative; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="d-flex align-items-center mb-2"><h6 class="mb-0">{{ alerts|length }} alert{{ 's' if alerts|length != 1 }}</h6>
+      <span class="ms-2 muted" style="font-size:.78rem">{{ alerts|selectattr('level','equalto','danger')|list|length }} urgent</span></div>
+    {% for a in alerts %}
+    <div class="al lv-{{ a.level }}">
+      <div class="ri"><i class="bi {{ a.icon }}"></i></div>
+      <div class="flex-grow-1 min-w-0">
+        <div class="fw-semibold">{{ a.title }}</div>
+        <div class="muted" style="font-size:.82rem">{{ a.detail }}</div>
+        <div class="d-flex gap-2 mt-2">
+          {% if a.link %}<a href="{{ a.link }}" class="btn btn-sm btn-soft">{{ a.link_label }} <i class="bi bi-arrow-right"></i></a>{% endif %}
+          <div class="dropdown">
+            <button class="btn btn-sm btn-link muted text-decoration-none" data-bs-toggle="dropdown"><i class="bi bi-clock me-1"></i>Snooze</button>
+            <ul class="dropdown-menu">{% for d, l in [(1, 'Until tomorrow'), (7, 'For a week'), (30, 'For a month')] %}
+              <li><form method="post" action="{{ url_for('alert_snooze') }}"><input type="hidden" name="key" value="{{ a.key }}"><input type="hidden" name="days" value="{{ d }}">
+                <button class="dropdown-item">{{ l }}</button></form></li>{% endfor %}</ul>
+          </div>
+        </div>
+      </div>
+    </div>
+    {% else %}
+    <div class="hub-card"><div class="empty"><i class="bi bi-emoji-smile"></i>All clear — nothing needs your attention.</div></div>
+    {% endfor %}
+    {% if snoozed %}
+    <details class="mt-3"><summary class="muted" style="font-size:.8rem;cursor:pointer">Snoozed ({{ snoozed|length }})</summary>
+      {% for s in snoozed %}<div class="list-row" style="font-size:.8rem"><span class="muted text-truncate">{{ s.key }}</span><span class="ms-auto muted">until {{ s.snoozed_until|short_date }}</span>
+        <form method="post" action="{{ url_for('alert_unsnooze') }}"><input type="hidden" name="key" value="{{ s.key }}"><button class="btn btn-sm btn-soft ms-2">Show again</button></form></div>{% endfor %}
+    </details>
+    {% endif %}
+  </div>
+  <div class="col-lg-4">
+    <div class="hub-card tone-{{ 'green' if close.closed else 'violet' }}">
+      <div class="d-flex align-items-center gap-3 mb-2">
+        <div class="ring" style="--p:{{ 100 if close.closed else close.pct }}"><span>{{ '✓' if close.closed else close.pct ~ '%' }}</span></div>
+        <div><div class="small-label">Month close</div><div class="fw-bold" style="font-size:1.05rem">{{ close.label }}</div>
+          <div class="muted" style="font-size:.76rem">{{ close.done }} of {{ close.total }} done{{ ' · closed' if close.closed }}</div></div>
+      </div>
+      {% for i in close['items'] %}
+      <div class="d-flex gap-2 py-1" style="font-size:.82rem"><i class="bi {{ 'bi-check-circle-fill text-success' if i.done else 'bi-circle muted' }}"></i>
+        <span class="{{ 'muted' if i.done }}">{{ i.label }}</span></div>
+      {% endfor %}
+      <a href="{{ url_for('month_close_page', m=close.month) }}" class="btn btn-sm btn-primary w-100 mt-2">Open checklist</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

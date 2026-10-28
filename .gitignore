@@ -1,0 +1,17 @@
+# personal / runtime data — never in version control
+data/
+users.json
+uploads/
+backups/
+logs/
+*.enc
+*.enc.prev
+finance.db*
+*.db
+*.sqlite*
+# environments and builds
+.venv/
+__pycache__/
+*.pyc
+dist/
+requirements.lock

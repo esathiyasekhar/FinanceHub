@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}Asset types – Finance Hub{% endblock %}
+{% block page_title %}Asset types{% endblock %}
+{% block content %}
+{% if sug %}
+<div class="hub-card mb-3 tone-violet">
+  <h6><i class="bi bi-magic me-2 t-tone"></i>Suggested new types</h6>
+  {% for s in sug %}
+  <form method="post" action="{{ url_for('asset_type_save') }}" class="list-row flex-wrap">
+    <input type="hidden" name="key" value="{{ s.key }}"><input type="hidden" name="label" value="{{ s.label }}">
+    {% for i in s['items'] %}<input type="hidden" name="ids" value="{{ i.id }}">{% endfor %}
+    <div><b>{{ s.label }}</b><div class="muted" style="font-size:.74rem">{{ s['items']|map(attribute='name')|join(', ') }}</div></div>
+    <button class="btn btn-sm btn-primary ms-auto"><i class="bi bi-plus-lg me-1"></i>Add “{{ s.label }}”</button>
+  </form>
+  {% endfor %}
+</div>
+{% endif %}
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="hub-card p-0" style="overflow:hidden">
+      <div class="px-3 pt-3"><h6>Your holdings and their type</h6>
+        <div class="muted mb-2" style="font-size:.76rem">Found from the ISIN (INF… = mutual fund / ETF; INE… type 01 = equity, 23 = InvIT, 25 = REIT, 07/08 = bonds;
+          IN0… = government securities) and the name. Change any of them — your choice is kept.</div></div>
+      <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+        <thead><tr><th>Security</th><th>ISIN</th><th>Type</th><th>Why</th></tr></thead>
+        <tbody>{% for s in secs %}
+          <tr><td><a href="{{ url_for('inv_stock', sid=s.id) }}">{{ s.name or s.symbol }}</a> <span class="muted" style="font-size:.72rem">{{ s.symbol }}</span></td>
+            <td class="muted" style="font-size:.76rem">{{ s.isin or '—' }}</td>
+            <td><form method="post" action="{{ url_for('asset_set') }}"><input type="hidden" name="sid" value="{{ s.id }}">
+              <select name="asset_type" class="form-select form-select-sm" onchange="this.form.submit()" style="min-width:170px">
+                <option value="">— not set —</option>{% for t in types %}<option value="{{ t.key }}" {{ 'selected' if s.asset_type == t.key }}>{{ t.label }}</option>{% endfor %}
+                {% if s.asset_type_manual %}<option value="__auto__">↺ back to automatic</option>{% endif %}</select></form></td>
+            <td class="muted" style="font-size:.72rem">{{ 'set by you' if s.asset_type_manual else why[s.id] }}</td></tr>
+        {% else %}<tr><td colspan="4"><div class="empty">No holdings yet — import contract notes or a CAS.</div></td></tr>{% endfor %}</tbody>
+      </table></div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="hub-card mb-3">
+      <h6>Types</h6>
+      {% for t in types %}
+      <div class="list-row tone-{{ t.tone }}"><span class="ri"><i class="bi bi-tag"></i></span>
+        <div><b style="font-size:.85rem">{{ t.label }}</b>{% if t.keywords %}<div class="muted" style="font-size:.7rem">matches: {{ t.keywords }}</div>{% endif %}</div>
+        <span class="ms-auto chip">{{ counts.get(t.key, 0) }}</span>
+        {% if not t.builtin %}<form method="post" action="{{ url_for('asset_type_delete') }}" onsubmit="return confirm('Remove this type?')"><input type="hidden" name="key" value="{{ t.key }}"><button class="btn btn-link btn-sm p-0 text-danger"><i class="bi bi-trash"></i></button></form>{% endif %}
+      </div>{% endfor %}
+    </div>
+    <div class="hub-card">
+      <h6>Add a type</h6>
+      <form method="post" action="{{ url_for('asset_type_save') }}" class="row g-2">
+        <div class="col-12"><label class="form-label">Name</label><input name="label" class="form-control form-control-sm" placeholder="e.g. Unlisted shares, AIF, PMS" required></div>
+        <div class="col-12"><label class="form-label">Recognise by words in the name (comma separated, optional)</label><input name="keywords" class="form-control form-control-sm" placeholder="e.g. UNLISTED, PRE-IPO"></div>
+        <div class="col-6"><label class="form-label">Colour</label><select name="tone" class="form-select form-select-sm">{% for c in ['indigo','teal','coral','amber','violet','blue','green','pink','slate'] %}<option>{{ c }}</option>{% endfor %}</select></div>
+        <div class="col-6 d-flex align-items-end"><button class="btn btn-sm btn-primary w-100">Add type</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

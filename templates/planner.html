@@ -1,0 +1,367 @@
+{% extends "base.html" %}
+{% block title %}Wealth planner – Finance Hub{% endblock %}
+{% block page_title %}Wealth planner — Core + Satellite compounding{% endblock %}
+
+{% block head %}
+<style>
+:root { --gold:#F2B544; --growth:#3ED6A0; --core:#7E9CFF; --sat:#2BC3D8; --rose:#FF7A8A; --inv:#8193AE; }
+.pl-card { background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:1rem 1.1rem; }
+.pl-card h6 { font-size:.86rem; font-weight:600; margin-bottom:.7rem; }
+.pl-lbl { font-size:.72rem; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.4px; }
+.pl-val { font-weight:700; font-variant-numeric:tabular-nums; }
+.pl-row { display:flex; justify-content:space-between; align-items:baseline; }
+.form-range { height:1.2rem; }
+.c-gold { color:var(--gold) !important; } .c-growth { color:var(--growth) !important; } .c-core { color:var(--core) !important; }
+.c-sat { color:var(--sat) !important; } .c-rose { color:var(--rose) !important; } .c-inv { color:var(--inv) !important; }
+.muted { color:var(--muted); }
+.bar2 { display:flex; height:10px; border-radius:6px; overflow:hidden; background:rgba(148,163,184,.15); }
+.bar2 > div { height:100%; }
+.hero-v { font-size:2.1rem; font-weight:800; line-height:1.05; color:var(--growth); font-variant-numeric:tabular-nums; }
+.kpi-v { font-size:1.3rem; font-weight:700; font-variant-numeric:tabular-nums; }
+.kpi-s { font-size:.74rem; color:var(--muted); }
+.tile { background:var(--tint); border:1px solid var(--border); border-radius:10px; padding:.7rem .85rem; height:100%; }
+.chip { font-size:.72rem; padding:.15rem .55rem; border-radius:12px; border:1px solid var(--border); background:transparent; color:var(--text); }
+.chip.active, .chip:hover { border-color:var(--gold); color:var(--gold); }
+.equiv { font-size:.74rem; color:var(--muted); margin-top:.25rem; }
+.is-off { opacity:.45; pointer-events:none; }
+.tbl td, .tbl th { font-size:.78rem; white-space:nowrap; font-variant-numeric:tabular-nums; vertical-align:middle; }
+.tbl tr.hl td { background:rgba(242,181,68,.10); }
+.tbl input { width:120px; font-size:.78rem; padding:.15rem .35rem; }
+.tbl tr.pending td { background:rgba(242,181,68,.07); }
+.rung { display:inline-flex; flex-direction:column; align-items:center; min-width:86px; padding:.35rem .5rem; margin:.15rem;
+        border-radius:8px; border:1px solid var(--border); font-size:.72rem; }
+.rung.in { border-color:rgba(242,181,68,.6); } .rung.out { opacity:.45; }
+.rung b { color:var(--gold); font-size:.85rem; }
+.good { color:var(--growth); } .bad { color:var(--rose); }
+.yc { border:1px solid var(--border); border-radius:10px; padding:.6rem .75rem; height:100%; font-size:.8rem; }
+.yc.best { border-color:rgba(62,214,160,.6); }
+.nav-tabs .nav-link { color:var(--muted); } .nav-tabs .nav-link.active { color:var(--gold); background:var(--card-bg); border-color:var(--border) var(--border) var(--card-bg); }
+.dirty-dot { display:none; } .dirty .dirty-dot { display:inline; }
+.sticky-inputs { position:sticky; top:70px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<!-- user bar -->
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <span class="pl-lbl">User</span>
+  <select id="userSel" class="form-select form-select-sm" style="width:auto;min-width:180px">
+    {% for uid, u in users.items() %}<option value="{{ uid }}">{{ u.name }} ({{ uid }})</option>{% endfor %}
+  </select>
+  <button id="btnSave" class="btn btn-sm btn-outline-warning" title="Save this user's plan and goal"><i class="bi bi-save me-1"></i>Save plan<span class="dirty-dot"> •</span></button>
+  <span id="dirtyNote" class="small text-warning" style="display:none">unsaved changes</span>
+  <button id="btnNewUser" class="btn btn-sm btn-outline-secondary"><i class="bi bi-person-plus me-1"></i>New user</button>
+  <button id="btnEditUser" class="btn btn-sm btn-outline-secondary"><i class="bi bi-pencil me-1"></i>Edit user &amp; goal</button>
+  <button id="btnUsers" class="btn btn-sm btn-outline-secondary"><i class="bi bi-people me-1"></i>Users</button>
+  <button id="btnReset" class="btn btn-sm btn-outline-secondary ms-auto"><i class="bi bi-arrow-counterclockwise me-1"></i>Reset page</button>
+  <button class="btn btn-sm btn-outline-secondary" onclick="window.print()"><i class="bi bi-printer me-1"></i>Print</button>
+</div>
+
+<ul class="nav nav-tabs mb-3" id="plTabs">
+  <li class="nav-item"><button class="nav-link active" data-tab="core">Core engine</button></li>
+  <li class="nav-item"><button class="nav-link" data-tab="goal">Goal &amp; schedule</button></li>
+  <li class="nav-item"><button class="nav-link" data-tab="review">Annual review</button></li>
+  <li class="nav-item"><button class="nav-link" data-tab="young">Youngster lab</button></li>
+</ul>
+
+<!-- ═══ CORE ENGINE ═══ -->
+<div class="pl-tab" id="tab-core">
+<div class="row g-3">
+  <div class="col-xl-4">
+    <div class="sticky-inputs">
+    <div class="pl-card mb-3">
+      <h6><i class="bi bi-sliders me-2 c-gold"></i>Portfolio strategy</h6>
+      <div class="pl-row"><span class="pl-lbl">Core allocation</span><span class="pl-val" id="dCoreAlloc"></span></div>
+      <input type="range" class="form-range" id="coreAlloc" min="0" max="100" step="5">
+      <div class="bar2 mb-1"><div id="barCore" style="background:var(--core)"></div><div id="barSat" style="background:var(--sat)"></div></div>
+      <div class="d-flex justify-content-between small mb-2"><span class="c-core" id="lblCore"></span><span class="c-sat" id="lblSat"></span></div>
+      <div class="pl-row"><span class="pl-lbl">Core CAGR</span><span class="pl-val c-core" id="dCoreRet"></span></div>
+      <input type="range" class="form-range" id="coreRet" min="8" max="32" step="0.5">
+      <div class="pl-row"><span class="pl-lbl">Satellite CAGR</span><span class="pl-val c-sat" id="dSatRet"></span></div>
+      <input type="range" class="form-range" id="satRet" min="15" max="45" step="0.5">
+      <div class="pl-row"><span class="pl-lbl">Horizon</span><span class="pl-val c-gold" id="dHorizon"></span></div>
+      <input type="range" class="form-range" id="horizon" min="1" max="60" step="1">
+    </div>
+
+    <div class="pl-card">
+      <div class="btn-group btn-group-sm mb-2 w-100">
+        <button class="btn btn-outline-secondary active" data-who-tab="self">Self <span class="badge bg-secondary" id="chipSelf"></span></button>
+        <button class="btn btn-outline-secondary" data-who-tab="spouse">Spouse <span class="badge bg-secondary" id="chipSpouse"></span></button>
+      </div>
+      {% for who, label in [('self', 'Self'), ('spouse', 'Spouse')] %}
+      <div class="who-pane" data-who="{{ who }}" {% if who == 'spouse' %}style="display:none"{% endif %}>
+        <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="{{ who }}Include">
+          <label class="form-check-label small" for="{{ who }}Include">{{ 'Include my contributions' if who == 'self' else 'Include spouse (same core / satellite pots)' }}</label></div>
+        <div id="{{ who }}Box">
+          <div class="row g-2">
+            <div class="col-6"><label class="pl-lbl">Initial lump sum ₹</label><input type="number" class="form-control form-control-sm" id="{{ who }}Lump" min="0" step="50000"></div>
+            <div class="col-6"><label class="pl-lbl">Monthly SIP ₹</label><input type="number" class="form-control form-control-sm" id="{{ who }}Monthly" min="0" step="5000"></div>
+          </div>
+          <div class="d-flex align-items-center gap-2 mt-2">
+            <div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="{{ who }}StepOn">
+              <label class="form-check-label small" for="{{ who }}StepOn">Yearly step-up</label></div>
+            <div class="btn-group btn-group-sm ms-auto" data-mode-for="{{ who }}">
+              <button class="btn btn-outline-secondary" data-mode="pct">%</button><button class="btn btn-outline-secondary" data-mode="amt">₹</button></div>
+          </div>
+          <div id="{{ who }}StepBox">
+            <div class="step-pct"><div class="pl-row"><span class="pl-lbl">Step-up</span><span class="pl-val" id="d{{ who }}Step"></span></div>
+              <input type="range" class="form-range" id="{{ who }}Step" min="0" max="25" step="0.5"></div>
+            <div class="step-amt" style="display:none"><label class="pl-lbl">Add to the monthly SIP each year ₹</label>
+              <input type="number" class="form-control form-control-sm" id="{{ who }}StepAmt" min="0" step="500"></div>
+            <div class="equiv" id="{{ who }}Equiv"></div>
+            <div class="row g-2 mt-1">
+              <div class="col-6"><label class="pl-lbl">Last step-up in year</label><input type="number" class="form-control form-control-sm" id="{{ who }}StepStop" min="1" max="60"></div>
+            </div>
+          </div>
+          <div class="row g-2 mt-1">
+            <div class="col-6"><label class="pl-lbl">SIP runs for (years)</label><input type="number" class="form-control form-control-sm" id="{{ who }}AddStop" min="0" max="60"></div>
+            <div class="col-6"><label class="pl-lbl">+ months</label><select class="form-select form-select-sm" id="{{ who }}AddStopMonths">
+              {% for m in range(12) %}<option value="{{ m }}">{{ m }} mo</option>{% endfor %}</select></div>
+          </div>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+    </div>
+  </div>
+
+  <div class="col-xl-8">
+    <div class="pl-card mb-3">
+      <div class="row g-3 align-items-center">
+        <div class="col-lg-6">
+          <div class="pl-lbl">Corpus at year <span id="kHorizon"></span></div>
+          <div class="hero-v" id="kCorpus">—</div>
+          <div class="small muted" id="kCorpusExact"></div>
+          <span class="badge mt-1" style="background:rgba(62,214,160,.15);color:var(--growth)" id="kMultiple"></span>
+          <div class="bar2 mt-2"><div id="segInv" style="background:var(--inv)"></div><div id="segGain" style="background:var(--growth)"></div></div>
+          <div class="d-flex justify-content-between mt-1 small">
+            <span><span class="muted">Invested</span> <b class="c-inv" id="kInvested"></b> <span class="muted" id="kInvestedExact"></span></span>
+            <span><span class="muted">Compounding</span> <b class="c-growth" id="kGain"></b> <span class="muted" id="kGainShare"></span></span>
+          </div>
+        </div>
+        <div class="col-lg-6">
+          <div class="row g-2">
+            <div class="col-6"><div class="tile"><div class="pl-lbl">Portfolio IRR</div><div class="kpi-v c-growth" id="kIrr"></div></div></div>
+            <div class="col-6"><div class="tile"><div class="pl-lbl">Blended CAGR</div><div class="kpi-v c-gold" id="kCagr"></div></div></div>
+            <div class="col-12"><div class="kpi-s" id="kGapNote"></div></div>
+            <div class="col-6"><div class="tile"><div class="pl-lbl">Money doubles every</div><div class="kpi-v" id="kDbl"></div></div></div>
+            <div class="col-6"><div class="tile"><div class="pl-lbl">Next 2× after the horizon</div><div class="kpi-v" id="kNext2x"></div></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="pl-card mb-3">
+      <div class="d-flex justify-content-between"><div><div class="pl-lbl">Core</div><div class="kpi-v c-core" id="kCoreC"></div><div class="kpi-s" id="kCoreSub"></div></div>
+        <div class="text-end"><div class="pl-lbl">Satellite</div><div class="kpi-v c-sat" id="kSatC"></div><div class="kpi-s" id="kSatSub"></div></div></div>
+      <div class="bar2 my-2"><div id="splitCore" style="background:var(--core)"></div><div id="splitSat" style="background:var(--sat)"></div></div>
+      <div class="kpi-s text-center" id="splitCaption"></div>
+    </div>
+
+    <div class="pl-card mb-3">
+      <div class="d-flex align-items-center mb-2">
+        <h6 class="mb-0"><i class="bi bi-graph-up me-2 c-growth"></i>Growth path</h6>
+        <span class="kpi-s ms-2" id="shareNote"></span>
+        <div class="btn-group btn-group-sm ms-auto"><button class="btn btn-outline-secondary active" id="scaleLin">Linear</button><button class="btn btn-outline-secondary" id="scaleLog">Log</button></div>
+      </div>
+      <div style="height:320px"><canvas id="growthChart"></canvas></div>
+    </div>
+
+    <div class="pl-card" id="spouseStrip" style="display:none">
+      <h6><i class="bi bi-people me-2 c-gold"></i>What the spouse's money does</h6>
+      <div class="row g-2 text-center">
+        <div class="col-6 col-md-3"><div class="tile"><div class="pl-lbl">Self only</div><div class="kpi-v c-rose" id="spSolo"></div><div class="kpi-s">invested <span id="spSoloInv"></span></div></div></div>
+        <div class="col-6 col-md-3"><div class="tile"><div class="pl-lbl">Together</div><div class="kpi-v c-growth" id="spTeam"></div><div class="kpi-s">invested <span id="spTeamInv"></span></div></div></div>
+        <div class="col-6 col-md-3"><div class="tile"><div class="pl-lbl">Extra corpus</div><div class="kpi-v c-gold" id="spExtra"></div><div class="kpi-s" id="spMult"></div></div></div>
+        <div class="col-6 col-md-3"><div class="tile"><div class="pl-lbl">Time saved</div><div class="kpi-v" id="spSaved"></div><div class="kpi-s">self-only corpus reached in year <span id="spReach"></span> instead of <span id="spH"></span></div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ═══ GOAL & SCHEDULE ═══ -->
+<div class="pl-tab" id="tab-goal" style="display:none">
+<div class="row g-3 mb-3">
+  <div class="col-xl-4">
+    <div class="pl-card h-100">
+      <h6><i class="bi bi-flag me-2 c-gold"></i>Your goal</h6>
+      <label class="pl-lbl">Target corpus ₹</label>
+      <input type="number" class="form-control form-control-sm" id="goalTarget" min="0" step="10000000">
+      <div class="my-1">{% for v, l in [(50000000,'₹5 Cr'),(100000000,'₹10 Cr'),(250000000,'₹25 Cr'),(500000000,'₹50 Cr'),(1000000000,'₹100 Cr')] %}
+        <button class="chip goal-chip" data-goal="{{ v }}">{{ l }}</button>{% endfor %}</div>
+      <label class="pl-lbl mt-1">Deadline (years from the start of the plan)</label>
+      <input type="number" class="form-control form-control-sm" id="goalYears" min="1" max="60">
+      <div class="kpi-s mt-1" id="goalCurrent"></div>
+      <div class="pl-row mt-2"><span class="pl-lbl">Blended CAGR to assume</span><span class="pl-val c-gold" id="dGoalRet"></span></div>
+      <input type="range" class="form-range" id="goalRet" min="6" max="40" step="0.5">
+      <div class="kpi-s" id="goalRetNote"></div>
+      <button class="btn btn-sm btn-link p-0 me-2" id="goalRetReset" style="display:none">Back to my CAGR</button>
+      <button class="btn btn-sm btn-link p-0" id="goalRetApply" style="display:none"></button>
+    </div>
+  </div>
+  <div class="col-xl-8">
+    <div class="row g-3">
+      <div class="col-md-4"><div class="pl-card h-100"><div class="pl-lbl">Goal reached in</div><div class="kpi-v c-growth" id="gTime">—</div><div class="kpi-s" id="gTimeSub"></div></div></div>
+      <div class="col-md-4"><div class="pl-card h-100"><div class="pl-lbl" id="gSipTitle">Monthly SIP to hit it on time</div><div class="kpi-v c-sat" id="gSip">—</div><div class="kpi-s" id="gSipSub"></div></div></div>
+      <div class="col-md-4"><div class="pl-card h-100"><div class="pl-lbl">CAGR needed with your SIP</div><div class="kpi-v c-gold" id="gRate">—</div><div class="kpi-s" id="gRateSub"></div></div></div>
+    </div>
+    <div class="pl-card mt-3">
+      <h6><i class="bi bi-table me-2 c-gold"></i>What a different CAGR does</h6>
+      <div class="table-responsive"><table class="table table-dark table-sm mb-0 tbl">
+        <thead><tr><th>Blended CAGR</th><th>Core / Satellite</th><th>IRR</th><th>Doubles every</th><th id="sensCorpusTh">Corpus</th><th>Goal reached</th><th>SIP needed on time</th></tr></thead>
+        <tbody id="sensBody"></tbody></table></div>
+      <div class="kpi-s mt-1">Click a row to assume that CAGR. Rates keep your core–satellite gap.</div>
+    </div>
+  </div>
+</div>
+<div class="pl-card mb-3">
+  <h6><i class="bi bi-bar-chart-steps me-2 c-gold"></i>Doubling ladder <span class="kpi-s fw-normal" id="ladderNote"></span></h6>
+  <div id="ladder"></div>
+</div>
+<div class="pl-card">
+  <div class="d-flex align-items-center mb-2"><h6 class="mb-0"><i class="bi bi-calendar3 me-2 c-gold"></i>Year-by-year schedule (60 years)</h6>
+    <button class="btn btn-sm btn-outline-success ms-auto" id="btnSchedCsv"><i class="bi bi-download me-1"></i>CSV</button>
+    <button class="btn btn-sm btn-outline-secondary ms-1" id="btnSchedCopy"><i class="bi bi-clipboard me-1"></i>Copy</button></div>
+  <div class="table-responsive" style="max-height:520px">
+  <table class="table table-dark table-sm mb-0 tbl"><thead style="position:sticky;top:0"><tr><th>Year</th><th>Self SIP</th><th>Spouse SIP</th>
+    <th>Core open</th><th>Core added</th><th>Core growth</th><th>Core close</th><th>Sat open</th><th>Sat added</th><th>Sat growth</th><th>Sat close</th>
+    <th>Corpus</th><th>Invested</th><th>Multiple</th><th id="thShare">% of final</th><th>Yrs to 2×</th></tr></thead>
+    <tbody id="schedBody"></tbody></table></div>
+</div>
+</div>
+
+<!-- ═══ ANNUAL REVIEW ═══ -->
+<div class="pl-tab" id="tab-review" style="display:none">
+<div class="row g-3 mb-3">
+  <div class="col-xl-3">
+    <div class="pl-card h-100">
+      <div class="pl-lbl">User</div><div class="kpi-v" id="rvName"></div><div class="kpi-s" id="rvId"></div>
+      <div class="small mt-2"><span class="muted">Goal</span> <span id="rvGoal"></span></div>
+      <div class="small"><span class="muted">Plan started</span> <span id="rvStart"></span></div>
+      <div class="small"><span class="muted">Years recorded</span> <span id="rvLogged"></span></div>
+      <div class="small"><span class="muted">Last saved</span> <span id="rvSaved"></span></div>
+    </div>
+  </div>
+  <div class="col-xl-9"><div class="row g-3">
+    <div class="col-md-3"><div class="pl-card h-100"><div class="pl-lbl" id="ccRevTitle">Projected at goal year</div><div class="kpi-v" id="ccRev">—</div><div class="kpi-s" id="ccVar"></div></div></div>
+    <div class="col-md-3"><div class="pl-card h-100"><div class="pl-lbl">Goal reached in</div><div class="kpi-v c-growth" id="ccTime">—</div><div class="kpi-s" id="ccTimeSub"></div></div></div>
+    <div class="col-md-3"><div class="pl-card h-100"><div class="pl-lbl">Return needed from here</div><div class="kpi-v c-gold" id="ccRate">—</div><div class="kpi-s" id="ccRateSub"></div></div></div>
+    <div class="col-md-3"><div class="pl-card h-100"><div class="pl-lbl" id="ccSipTitle">Monthly SIP needed</div><div class="kpi-v c-sat" id="ccSip">—</div><div class="kpi-s" id="ccSipSub"></div></div></div>
+  </div></div>
+</div>
+<div class="pl-card mb-3">
+  <h6><i class="bi bi-graph-up-arrow me-2 c-growth"></i>Plan, actuals and the road to the goal</h6>
+  <div style="height:280px"><canvas id="reviewChart"></canvas></div>
+</div>
+<div class="pl-card">
+  <div class="d-flex align-items-center mb-2"><h6 class="mb-0"><i class="bi bi-journal-check me-2 c-gold"></i>Year-end records</h6>
+    <span class="kpi-s ms-2">Plan year 1 = financial year starting April of the start year. Enter the amount invested in the year and the Core and Satellite values on 31 March, then Save — or <b>Fill from Hub</b>.</span>
+    <button class="btn btn-sm btn-outline-danger ms-auto" id="btnClearActuals">Delete all records</button></div>
+  <div class="table-responsive"><table class="table table-dark table-sm mb-0 tbl">
+    <thead><tr><th>Year</th><th>Planned invested</th><th>Actual invested</th><th>Plan corpus</th><th>Core value</th><th>Satellite value</th>
+      <th>Total</th><th>Return</th><th>vs plan</th><th></th></tr></thead>
+    <tbody id="actBody"></tbody></table></div>
+  <div id="hubNote" class="small text-warning mt-2"></div>
+</div>
+</div>
+
+<!-- ═══ YOUNGSTER LAB ═══ -->
+<div class="pl-tab" id="tab-young" style="display:none">
+<div class="row g-3">
+  <div class="col-xl-4">
+    <div class="pl-card">
+      <h6><i class="bi bi-rocket-takeoff me-2 c-gold"></i>Start early, end rich <span class="badge bg-secondary ms-1" id="yHorizon"></span></h6>
+      <div class="pl-row"><span class="pl-lbl">Age today</span><span class="pl-val" id="dyAge"></span></div>
+      <input type="range" class="form-range" id="yAge" min="15" max="55" step="1">
+      <label class="pl-lbl">Monthly investment ₹</label>
+      <input type="number" class="form-control form-control-sm" id="yMonthly" min="0" step="1000">
+      <div class="my-1">{% for v, l in [(5000,'₹5k'),(10000,'₹10k'),(15000,'₹15k'),(25000,'₹25k'),(50000,'₹50k')] %}<button class="chip y-chip" data-val="{{ v }}">{{ l }}</button>{% endfor %}</div>
+      <div class="d-flex align-items-center gap-2 mt-2">
+        <div class="form-check form-switch m-0"><input class="form-check-input" type="checkbox" id="yStepOn"><label class="form-check-label small" for="yStepOn">Yearly step-up</label></div>
+        <div class="btn-group btn-group-sm ms-auto" data-mode-for="y"><button class="btn btn-outline-secondary" data-mode="pct">%</button><button class="btn btn-outline-secondary" data-mode="amt">₹</button></div>
+      </div>
+      <div id="yStepBox">
+        <div class="step-pct"><div class="pl-row"><span class="pl-lbl">Step-up</span><span class="pl-val" id="dyStep"></span></div><input type="range" class="form-range" id="yStep" min="0" max="25" step="0.5"></div>
+        <div class="step-amt" style="display:none"><label class="pl-lbl">Add each year ₹</label><input type="number" class="form-control form-control-sm" id="yStepAmt" min="0" step="500"></div>
+        <div class="equiv" id="yEquiv"></div>
+        <div class="pl-row mt-1"><span class="pl-lbl">Stop stepping up after</span><span class="pl-val" id="dyStepStop"></span></div>
+        <input type="range" class="form-range" id="yStepStop" min="1" max="49" step="1"><div class="kpi-s" id="hyStepStop"></div>
+      </div>
+      <div class="pl-row mt-1"><span class="pl-lbl">Stop investing after</span><span class="pl-val" id="dyAddStop"></span></div>
+      <div class="d-flex gap-2 align-items-center"><input type="range" class="form-range" id="yAddStop" min="1" max="49" step="1">
+        <select class="form-select form-select-sm" style="width:auto" id="yAddStopMonths">{% for m in range(12) %}<option value="{{ m }}">{{ m }} mo</option>{% endfor %}</select></div>
+      <div class="kpi-s" id="hyAddStop"></div>
+      <div class="pl-row mt-2"><span class="pl-lbl">Core / Satellite</span><span class="pl-val" id="dyAlloc"></span></div>
+      <input type="range" class="form-range" id="yAlloc" min="0" max="100" step="5">
+      <div class="bar2 mb-1"><div id="yBarCore" style="background:var(--core)"></div><div id="yBarSat" style="background:var(--sat)"></div></div>
+      <div class="pl-row"><span class="pl-lbl">Core CAGR</span><span class="pl-val c-core" id="dyCore"></span></div>
+      <input type="range" class="form-range" id="yCore" min="8" max="32" step="0.5">
+      <div class="pl-row"><span class="pl-lbl">Satellite CAGR</span><span class="pl-val c-sat" id="dySat"></span></div>
+      <input type="range" class="form-range" id="ySat" min="15" max="45" step="0.5">
+      <div class="kpi-s" id="hyReturn"></div>
+    </div>
+  </div>
+  <div class="col-xl-8">
+    <div class="row g-2 mb-3">
+      <div class="col-6 col-md-4"><div class="tile"><div class="pl-lbl">At 50</div><div class="kpi-v c-sat" id="y50"></div><div class="kpi-s"><span id="y50x"></span> <span id="y50m"></span></div></div></div>
+      <div class="col-6 col-md-4"><div class="tile"><div class="pl-lbl">At 60</div><div class="kpi-v c-gold" id="y60"></div><div class="kpi-s"><span id="y60x"></span> <span id="y60m"></span></div></div></div>
+      <div class="col-6 col-md-4"><div class="tile"><div class="pl-lbl">At 70</div><div class="kpi-v c-growth" id="y70"></div><div class="kpi-s"><span id="y70x"></span> <span id="y70m"></span></div></div></div>
+      <div class="col-6 col-md-4"><div class="tile"><div class="pl-lbl">You invest</div><div class="kpi-v" id="yInv"></div><div class="kpi-s" id="yInvSub"></div></div></div>
+      <div class="col-6 col-md-4"><div class="tile"><div class="pl-lbl">Compounding adds</div><div class="kpi-v c-growth" id="yGain"></div><div class="kpi-s"><span id="yGainShare"></span> · <span id="yMult"></span></div></div></div>
+      <div class="col-6 col-md-4"><div class="tile"><div class="pl-lbl">Waiting 3 years costs</div><div class="kpi-v c-rose" id="yDelay"></div><div class="kpi-s" id="yDelayLoss"></div></div></div>
+    </div>
+    <div class="pl-card mb-3"><h6><i class="bi bi-hourglass-split me-2 c-rose"></i>What waiting costs (starting at <span id="yAgeNow"></span>)</h6>
+      <div class="row g-2" id="yCards"></div></div>
+    <div class="pl-card mb-3"><h6><i class="bi bi-arrow-repeat me-2 c-gold"></i>How fast money doubles</h6>
+      <table class="table table-dark table-sm mb-1 tbl"><thead><tr><th></th><th>Return</th><th>Doubles in</th><th>₹1 L in 30 yrs</th></tr></thead><tbody id="yDblBody"></tbody></table>
+      <div class="kpi-s" id="yDblNote"></div></div>
+    <div class="pl-card"><h6><i class="bi bi-calendar-range me-2 c-gold"></i>Year by year from age <span id="yAgeStart"></span></h6>
+      <div class="table-responsive" style="max-height:480px"><table class="table table-dark table-sm mb-0 tbl">
+        <thead style="position:sticky;top:0"><tr><th>Age</th><th>Year</th><th>Monthly SIP</th><th>Added</th><th>Growth</th><th>Invested</th><th>Corpus</th><th>Multiple</th></tr></thead>
+        <tbody id="yTimeline"></tbody></table></div></div>
+  </div>
+</div>
+</div>
+
+<div class="small muted mt-3">Engine: Compounding Calculator v{{ app_version }} (same formulas: two pots without rebalancing, SIPs at mid-year,
+  IRR on real cash-flow timing). Users, plans, goals and year-end records are saved in the Hub database.</div>
+
+<!-- user modal -->
+<div class="modal fade" id="userModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content" style="background:var(--navy2);border:1px solid var(--border)">
+  <div class="modal-header py-2"><h6 class="modal-title" id="umTitle">New user</h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <div class="row g-2">
+      <div class="col-7"><label class="pl-lbl">Name</label><input class="form-control form-control-sm" id="umName"></div>
+      <div class="col-5"><label class="pl-lbl">User ID</label><input class="form-control form-control-sm" id="umId" placeholder="auto"></div>
+      <div class="col-7"><label class="pl-lbl">Target corpus ₹</label><input type="number" class="form-control form-control-sm" id="umTarget" step="10000000"></div>
+      <div class="col-5"><label class="pl-lbl">In how many years</label><input type="number" class="form-control form-control-sm" id="umYears" min="1" max="60"></div>
+      <div class="col-12">{% for v, l in [(50000000,'₹5 Cr'),(100000000,'₹10 Cr'),(250000000,'₹25 Cr'),(500000000,'₹50 Cr'),(1000000000,'₹100 Cr')] %}<button class="chip um-chip" data-goal="{{ v }}">{{ l }}</button>{% endfor %}</div>
+      <div class="col-6"><label class="pl-lbl">Plan started in (year 1 begins)</label><input type="number" class="form-control form-control-sm" id="umStart" min="1980" max="2100"></div>
+      <div class="col-6" id="umTplBox"><label class="pl-lbl">Start the plan from</label><select class="form-select form-select-sm" id="umTpl"></select></div>
+    </div>
+    <div class="small text-warning mt-2" id="umMsg"></div>
+  </div>
+  <div class="modal-footer py-2"><button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button><button class="btn btn-sm btn-primary" id="umSave">Save</button></div>
+</div></div></div>
+
+<!-- users modal -->
+<div class="modal fade" id="usersModal" tabindex="-1"><div class="modal-dialog modal-lg"><div class="modal-content" style="background:var(--navy2);border:1px solid var(--border)">
+  <div class="modal-header py-2"><h6 class="modal-title">Users</h6><button class="btn-close" data-bs-dismiss="modal"></button></div>
+  <div class="modal-body">
+    <table class="table table-dark table-sm tbl"><thead><tr><th>Name</th><th>User ID</th><th>Goal</th><th>Records</th><th>Saved</th><th></th></tr></thead><tbody id="usersBody"></tbody></table>
+    <div class="d-flex flex-wrap gap-2 align-items-center">
+      <a class="btn btn-sm btn-outline-success" href="{{ url_for('cc_export') }}"><i class="bi bi-download me-1"></i>Export all users (JSON)</a>
+      <label class="btn btn-sm btn-outline-primary mb-0"><i class="bi bi-upload me-1"></i>Import users (JSON)<input type="file" id="importFile" accept=".json" hidden></label>
+      <span class="small muted">Import works with the desktop calculator's database file or its "Export all users" file; the newer copy of each user wins.</span>
+    </div>
+    <div class="small mt-2" id="importMsg"></div>
+  </div>
+</div></div></div>
+{% endblock %}
+
+{% block scripts %}
+<script>window.PLANNER_USERS = {{ users|tojson }};</script>
+<script src="{{ url_for('static', filename='planner/calculator.js') }}"></script>
+<script src="{{ url_for('static', filename='planner/planner.js') }}"></script>
+{% endblock %}

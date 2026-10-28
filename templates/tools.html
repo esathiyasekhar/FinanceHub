@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+{% block title %}Card &amp; loan tools – Finance Hub{% endblock %}
+{% block page_title %}Card &amp; loan tools{% endblock %}
+
+{% block head %}
+<style>
+  .rank { width:30px; height:30px; border-radius:9px; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:.85rem;
+          background:var(--tint2); flex:none; }
+  .rank.first { background:var(--grad); color:#fff; }
+  .res-tile { background:var(--tint); border:1px solid var(--border); border-radius:12px; padding:.7rem .8rem; height:100%; }
+  .res-tile .v { font-size:1.2rem; font-weight:800; font-variant-numeric:tabular-nums; }
+  .res-tile .l { font-size:.7rem; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set emi_ratio = (100 * b.monthly_emi / income_m) if income_m > 0 else none %}
+<div class="row g-3 mb-3">
+  <div class="col-md-4"><div class="hub-card kpi tone-{{ 'red' if (util_all or 0) >= 30 else 'green' }} h-100"><div class="lbl">Card utilisation</div>
+    <div class="val">{{ ('%.0f'|format(util_all) ~ '%') if util_all is not none else '—' }}</div>
+    <div class="sub">{{ tot_out|inr }} of {{ tot_limit|inr }} · keep under 30%</div></div></div>
+  <div class="col-md-4"><div class="hub-card kpi tone-amber h-100"><div class="lbl">EMIs vs income</div>
+    <div class="val">{{ ('%.0f'|format(emi_ratio) ~ '%') if emi_ratio is not none else '—' }}</div>
+    <div class="sub">{{ b.monthly_emi|inr }} EMIs · income ~{{ income_m|inr }}/month (last 3 months){% if emi_ratio and emi_ratio > 40 %} · above the 40% comfort level{% endif %}</div></div></div>
+  <div class="col-md-4"><div class="hub-card kpi tone-violet h-100"><div class="lbl">Loans &amp; EMIs outstanding</div>
+    <div class="val">{{ (b.totals.loan + b.totals.emi)|inr }}</div><div class="sub">{{ loans|length }} running</div></div></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-6">
+    <div class="hub-card h-100">
+      <div class="card-head"><h6><i class="bi bi-lightning-charge me-2 text-warning"></i>Best card to use today</h6><span class="more muted" style="font-size:.74rem">{{ today.strftime('%d %b') }}</span></div>
+      <div class="muted mb-2" style="font-size:.76rem">A purchase made today is billed on the card’s next statement and paid by that bill’s due date — the longer the gap, the longer your interest-free credit.</div>
+      {% for x in best %}
+      <div class="list-row">
+        <div class="rank {{ 'first' if loop.first and x.ok }}">{{ loop.index }}</div>
+        <div class="min-w-0"><a href="{{ url_for('account_detail', acc_id=x.a.id) }}" class="fw-semibold" style="color:var(--text);text-decoration:none">{{ x.a.name }}</a>
+          <div class="muted" style="font-size:.72rem">billed {{ x.statement.strftime('%d %b') }} · pay by {{ x.due.strftime('%d %b') }}{% if x.a.available is not none %} · {{ x.a.available|inr }} free{% endif %}
+            {% if not x.ok %}<span class="text-warning"> · {{ 'utilisation high' if (x.a.util or 0) >= 30 else 'no limit left' }}</span>{% endif %}</div></div>
+        <div class="ms-auto text-end"><div class="fw-bold num" style="font-size:1.05rem">{{ x.free_days }}</div><div class="muted" style="font-size:.66rem">days free</div></div>
+      </div>
+      {% else %}
+      <div class="empty"><i class="bi bi-credit-card"></i>Needs each card’s statement day — add a card statement or set the day on the card.</div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="hub-card h-100">
+      <div class="card-head"><h6><i class="bi bi-speedometer me-2 text-primary"></i>Utilisation by card</h6></div>
+      <div class="table-responsive"><table class="table table-sm mb-0 align-middle">
+        <thead><tr><th>Card</th><th class="text-end">Outstanding</th><th class="text-end">Limit</th><th style="width:30%">Used</th><th class="text-end">Spent FY</th></tr></thead>
+        <tbody>{% for a in cards|sort(attribute='outstanding', reverse=true) %}
+          <tr><td><a href="{{ url_for('account_detail', acc_id=a.id) }}" style="color:var(--text);text-decoration:none">{{ a.name }}</a></td>
+            <td class="text-end num">{{ a.outstanding|inr }}</td><td class="text-end num muted">{{ a.limit|inr if a.limit else '—' }}</td>
+            <td>{% if a.util is not none %}<div class="bar {{ 'tone-red' if a.util >= 75 else 'tone-amber' if a.util >= 30 else 'tone-green' }}"><span style="width:{{ [a.util,100]|min }}%"></span></div>
+              <div class="muted" style="font-size:.68rem">{{ '%.0f'|format(a.util) }}%</div>{% else %}<span class="muted">—</span>{% endif %}</td>
+            <td class="text-end num muted">{{ a.stat.out|inr }}</td></tr>
+        {% endfor %}</tbody></table></div>
+      {% set rew = cards|selectattr('reward_note')|list %}
+      {% if rew %}<div class="mt-3"><div class="small-label mb-1">Rewards</div>
+        {% for a in rew %}<div style="font-size:.78rem"><b>{{ a.name }}</b> — <span class="muted">{{ a.reward_note }}</span>{% if a.stat.points %} · {{ '%g'|format(a.stat.points) }} pts this FY{% endif %}</div>{% endfor %}</div>
+      {% else %}<div class="muted mt-2" style="font-size:.74rem"><i class="bi bi-stars me-1"></i>Add how each card earns rewards (edit the card) to see them here.</div>{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="row g-3" id="prepay">
+  <div class="col-lg-7">
+    <div class="hub-card h-100 tone-violet">
+      <div class="card-head"><h6><i class="bi bi-calculator me-2 t-tone"></i>Loan prepayment calculator</h6></div>
+      <div class="row g-2">
+        <div class="col-12"><label class="form-label">Start from a loan</label>
+          <select id="pLoan" class="form-select form-select-sm"><option value="">— type your own figures —</option>
+            {% for l in loans if not l.bullet %}<option value="{{ l.id }}">{{ l.name }} · {{ l.outstanding_now|inr }}{{ ' · ' ~ ('%g'|format(l.interest_rate)) ~ '%' if l.interest_rate }}</option>{% endfor %}</select></div>
+        <div class="col-6 col-md-4"><label class="form-label">Outstanding (₹)</label><input id="pP" type="number" class="form-control form-control-sm" value="1000000"></div>
+        <div class="col-6 col-md-4"><label class="form-label">Interest rate (% p.a.)</label><input id="pR" type="number" step="0.01" class="form-control form-control-sm" value="9"></div>
+        <div class="col-6 col-md-4"><label class="form-label">EMI (₹ / month)</label><input id="pE" type="number" class="form-control form-control-sm" value="15000"></div>
+        <div class="col-6 col-md-4"><label class="form-label">Prepay now (₹)</label><input id="pL" type="number" class="form-control form-control-sm" value="100000"></div>
+        <div class="col-6 col-md-4"><label class="form-label">Extra every month (₹)</label><input id="pX" type="number" class="form-control form-control-sm" value="0"></div>
+        <div class="col-6 col-md-4"><label class="form-label">Use the prepayment to</label>
+          <select id="pMode" class="form-select form-select-sm"><option value="tenure">Shorten the loan</option><option value="emi">Lower the EMI</option></select></div>
+      </div>
+      <div class="row g-2 mt-2" id="pOut"></div>
+      <div style="height:220px" class="mt-3"><canvas id="pChart"></canvas></div>
+      <div class="muted mt-1" style="font-size:.72rem">Reducing-balance method, monthly rests. Check your lender’s prepayment charges (usually nil on floating-rate home loans).</div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="hub-card h-100">
+      <div class="card-head"><h6><i class="bi bi-sort-down me-2 text-primary"></i>Which loan to prepay first</h6></div>
+      <div class="muted mb-2" style="font-size:.76rem">Extra money saves the most interest on the highest-rate loan (the “avalanche” order).</div>
+      {% for l in loans %}
+      <div class="list-row">
+        <div class="rank {{ 'first' if loop.first }}">{{ loop.index }}</div>
+        <div class="min-w-0"><div class="fw-semibold text-truncate" style="font-size:.85rem">{{ l.name }}</div>
+          <div class="muted" style="font-size:.72rem">{{ l.outstanding_now|inr }} · {{ l.emi_amount|inr }}{{ ' once' if l.bullet else '/mo' }}{% if l.interest_left %} · ~{{ l.interest_left|inr }} interest left{% endif %}</div></div>
+        <div class="ms-auto fw-bold num {{ 'text-danger' if (l.interest_rate or 0) >= 12 else '' }}">{{ ('%g'|format(l.interest_rate) ~ '%') if l.interest_rate else '—' }}</div>
+      </div>
+      {% else %}<div class="empty"><i class="bi bi-emoji-smile"></i>No running loans.</div>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const LOANS = {{ loans_json|safe }};
+  const $ = id => document.getElementById(id);
+  let chart;
+  function sched(P, r, E, X) {          // months and interest, balance series
+    const bal = [P]; let b = P, i = 0, n = 0;
+    if (E + X <= P * r) return {n: Infinity, interest: Infinity, bal};
+    while (b > 0.5 && n < 1200) { const int = b * r; i += int; b = b + int - E - X; n++; bal.push(Math.max(b, 0)); }
+    return {n, interest: i, bal};
+  }
+  const emiFor = (P, r, n) => r ? P * r * Math.pow(1 + r, n) / (Math.pow(1 + r, n) - 1) : P / n;
+  const yrs = n => !isFinite(n) ? 'never' : (Math.floor(n / 12) ? Math.floor(n / 12) + ' y ' : '') + (n % 12) + ' m';
+  const end = n => { const d = new Date(); d.setMonth(d.getMonth() + n); return d.toLocaleDateString('en-IN', {month: 'short', year: 'numeric'}); };
+  function tile(l, v, s, cls) { return `<div class="col-6 col-md-3"><div class="res-tile"><div class="l">${l}</div><div class="v ${cls || ''}">${v}</div><div class="muted" style="font-size:.7rem">${s || ''}</div></div></div>`; }
+  function calc() {
+    const P = +$('pP').value || 0, r = (+$('pR').value || 0) / 1200, E = +$('pE').value || 0, L = Math.min(+$('pL').value || 0, P),
+          X = +$('pX').value || 0, mode = $('pMode').value;
+    const base = sched(P, r, E, 0);
+    let after, newE = E;
+    if (mode === 'emi' && isFinite(base.n)) { newE = emiFor(P - L, r, base.n); after = sched(P - L, r, newE, X); }
+    else after = sched(P - L, r, E, X);
+    const saved = base.interest - after.interest;
+    $('pOut').innerHTML = !isFinite(base.n)
+      ? `<div class="col-12"><div class="soft-box text-danger" style="font-size:.82rem">The EMI does not cover the monthly interest (${HUB.inr(P * r)}), so this loan would never be repaid.</div></div>`
+      : tile('Interest saved', HUB.inr(saved), 'vs ' + HUB.inr(base.interest) + ' today', 'amount-credit') +
+        (mode === 'emi' ? tile('New EMI', HUB.inr(newE), HUB.inr(E - newE) + ' less a month')
+                        : tile('Loan ends', end(after.n), 'instead of ' + end(base.n))) +
+        tile('Time saved', yrs(base.n - after.n), yrs(after.n) + ' left') +
+        tile('Every ₹1 prepaid saves', '₹' + ((L + X * after.n) ? (saved / (L + X * after.n)).toFixed(2) : '0.00'), 'in interest');
+    const N = Math.max(base.bal.length, after.bal.length), labels = [];
+    for (let k = 0; k < N; k += 1) labels.push(k % 12 === 0 ? 'Y' + (k / 12) : '');
+    const data = {labels, datasets: [
+      {label: 'As now', data: base.bal, borderColor: '#f9735b', pointRadius: 0, tension: .2},
+      {label: 'With prepayment', data: after.bal, borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.12)', fill: true, pointRadius: 0, tension: .2}]};
+    if (chart) { chart.data = data; chart.update(); }
+    else chart = new Chart($('pChart'), {type: 'line', data, options: {maintainAspectRatio: false, interaction: {mode: 'index', intersect: false},
+      plugins: {legend: {position: 'bottom', labels: {boxWidth: 10}}, tooltip: {callbacks: {title: c => 'Month ' + c[0].dataIndex, label: c => c.dataset.label + ' ' + HUB.inr(c.parsed.y)}}},
+      scales: {y: {ticks: {callback: v => HUB.inrShort(v)}}, x: {grid: {display: false}, ticks: {autoSkip: false, maxRotation: 0}}}}});
+  }
+  $('pLoan').addEventListener('change', e => {
+    const l = LOANS.find(x => String(x.id) === e.target.value); if (!l) return;
+    $('pP').value = Math.round(l.out); $('pR').value = l.rate || 0; $('pE').value = Math.round(l.emi);
+    $('pL').value = Math.round(Math.min(100000, l.out / 10)); calc();
+  });
+  ['pP', 'pR', 'pE', 'pL', 'pX', 'pMode'].forEach(id => $(id).addEventListener('input', calc));
+  const first = LOANS.filter(l => !l.bullet && l.rate && l.emi).sort((a, b) => b.out - a.out)[0];
+  if (first) { $('pLoan').value = first.id; $('pLoan').dispatchEvent(new Event('change')); } else calc();
+})();
+</script>
+{% endblock %}

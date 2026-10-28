@@ -1,0 +1,339 @@
+{% extends "base.html" %}
+{% block title %}Accounts – Finance Hub{% endblock %}
+{% block page_title %}Accounts{% endblock %}
+
+{% block head %}
+<style>
+  .acct { background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius); padding:1rem 1.05rem; height:100%;
+          box-shadow:var(--shadow); display:flex; flex-direction:column; position:relative; }
+  .acct .top { display:flex; gap:.7rem; align-items:flex-start; }
+  .acct .ai { width:40px; height:40px; border-radius:12px; flex:none; display:flex; align-items:center; justify-content:center; font-size:1.1rem;
+              background:color-mix(in srgb, var(--tone) 15%, transparent); color:var(--tone); }
+  .acct .nm { font-weight:700; font-size:.93rem; line-height:1.25; }
+  .acct .nm a { color:var(--text); text-decoration:none; } .acct .nm a:hover { color:var(--tone); }
+  .acct .meta { font-size:.74rem; color:var(--muted); }
+  .acct .big { font-size:1.35rem; font-weight:800; font-variant-numeric:tabular-nums; line-height:1.2; }
+  .acct .acts { margin-top:auto; padding-top:.7rem; display:flex; gap:.35rem; flex-wrap:wrap; }
+  .acct .acts .btn { font-size:.74rem; padding:.22rem .55rem; }
+  .acct .kv { display:grid; grid-template-columns:1fr 1fr; gap:.35rem .8rem; font-size:.78rem; margin-top:.6rem; }
+  .acct .kv span { color:var(--muted); display:block; font-size:.66rem; text-transform:uppercase; letter-spacing:.4px; font-weight:600; }
+  .acct .kv b { font-weight:600; font-variant-numeric:tabular-nums; }
+  .ccard { border-radius:16px; padding:1rem 1.1rem; color:#fff; position:relative; overflow:hidden; min-height:150px;
+           background:linear-gradient(135deg, var(--tone) 0%, color-mix(in srgb, var(--tone) 50%, #111827) 100%); }
+  .ccard::after { content:''; position:absolute; width:220px; height:220px; right:-70px; top:-90px; border-radius:50%; background:rgba(255,255,255,.12); }
+  .ccard .chipi { width:34px; height:24px; border-radius:5px; background:linear-gradient(135deg,#fde68a,#d4a017); opacity:.9; }
+  .ccard .num4 { letter-spacing:2px; font-family:ui-monospace,monospace; font-size:.95rem; opacity:.92; }
+  .ccard .lab { font-size:.62rem; text-transform:uppercase; letter-spacing:.6px; opacity:.78; }
+  .ccard a { color:#fff !important; text-decoration:none; }
+  .sum-strip { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:.75rem; }
+  .group-card .list-row .amt { margin-left:auto; text-align:right; font-weight:700; font-variant-numeric:tabular-nums; font-size:.9rem; }
+  .group-card .list-row .amt small { display:block; font-weight:500; color:var(--muted); font-size:.7rem; }
+  .group-card .list-row a { color:var(--text); text-decoration:none; font-weight:600; font-size:.86rem; }
+  .status-paid { --tone:var(--green); } .status-due { --tone:var(--amber); } .status-part { --tone:var(--blue); }
+  .status-overdue { --tone:var(--red); } .status-check { --tone:var(--amber); } .status-expected { --tone:var(--slate); }
+  .add-tile { border-style:dashed !important; min-height:180px; box-shadow:none !important; align-items:center; justify-content:center; text-decoration:none; }
+</style>
+{% endblock %}
+
+{% macro money(v) %}{% if v is none %}<span class="muted">—</span>{% else %}{{ v|inr }}{% endif %}{% endmacro %}
+{% macro src(a) %}{% if a.as_of %}<span title="{{ 'From statement' if a.source == 'statement' else 'Entered by you' }}"><i class="bi {{ 'bi-file-earmark-text' if a.source == 'statement' else 'bi-pencil' }}"></i> {{ a.as_of|short_date }}</span>{% if a.stale_days and a.stale_days > 40 %} <span class="chip tone-amber" title="Last figure is {{ a.stale_days }} days old">old</span>{% endif %}{% elif a.source == 'opening' %}opening balance{% else %}no balance yet{% endif %}{% endmacro %}
+
+{% macro acts(a, kind) %}
+  <div class="acts">
+    {% if kind in ('bank', 'deposit', 'wallet', 'asset') %}
+      <button class="btn btn-soft" data-balance="{{ a.id }}" data-name="{{ a.name }}" data-label="{{ 'Current value (₹)' if kind in ('deposit','asset') else 'Balance (₹)' }}"><i class="bi bi-pencil-square me-1"></i>Update</button>
+    {% elif kind in ('card', 'loan') %}
+      <button class="btn btn-soft" data-balance="{{ a.id }}" data-name="{{ a.name }}" data-label="Outstanding (₹)" title="Type today’s outstanding when you have no statement"><i class="bi bi-pencil-square me-1"></i>Outstanding</button>
+    {% endif %}
+    {% if a.stat.count %}<a class="btn btn-soft" href="{{ url_for('transactions', account=a.name, start=sel_start, end=sel_end) }}" title="Transactions in {{ fy_label }}"><i class="bi bi-list-ul me-1"></i>{{ a.stat.count }}</a>{% endif %}
+    <button class="btn btn-soft" data-edit='{{ a.form|tojson }}' title="Edit"><i class="bi bi-gear"></i></button>
+    <a class="btn btn-soft ms-auto" href="{{ url_for('account_detail', acc_id=a.id) }}">Details <i class="bi bi-chevron-right"></i></a>
+  </div>
+{% endmacro %}
+
+{% macro bank_card(a) %}
+<div class="acct tone-{{ a.tone }}">
+  <div class="top">
+    <div class="ai"><i class="bi bi-bank"></i></div>
+    <div class="min-w-0 flex-grow-1">
+      <div class="nm"><a href="{{ url_for('account_detail', acc_id=a.id) }}">{{ a.name }}</a></div>
+      <div class="meta">{{ a.subtype or 'Savings' }} · {{ a.bank or '—' }}{% if a.last4 %} · ····{{ a.last4 }}{% endif %}{% if a.holder %} · {{ a.holder }}{% endif %}</div>
+    </div>
+    {% if a.entity and a.entity != 'Personal' %}<span class="chip tone-violet">{{ a.entity }}</span>{% endif %}
+  </div>
+  <div class="mt-3">
+    <div class="big {{ 'amount-credit' if (a.balance or 0) >= 0 else 'amount-debit' }}">{{ money(a.balance) }}</div>
+    <div class="meta">{{ src(a) }}</div>
+  </div>
+  <div class="kv">
+    <div><span>In · {{ fy_label }}</span><b class="amount-credit">{{ a.stat['in']|inr }}</b></div>
+    <div><span>Out · {{ fy_label }}</span><b class="amount-debit">{{ a.stat.out|inr }}</b></div>
+  </div>
+  {{ acts(a, 'bank') }}
+</div>
+{% endmacro %}
+
+{% macro credit_card(a) %}
+<div class="acct tone-{{ a.tone }}" style="padding:.6rem">
+  <div class="ccard">
+    <div class="d-flex justify-content-between align-items-start position-relative" style="z-index:1">
+      <div><div class="lab">{{ a.bank or 'Card' }}</div><div class="fw-bold" style="font-size:.98rem"><a href="{{ url_for('account_detail', acc_id=a.id) }}">{{ a.name }}</a></div></div>
+      <div class="chipi"></div>
+    </div>
+    <div class="num4 mt-3 position-relative" style="z-index:1">•••• •••• •••• {{ a.last4 or '····' }}</div>
+    <div class="d-flex justify-content-between align-items-end mt-2 position-relative" style="z-index:1">
+      <div><div class="lab">Outstanding</div><div class="fw-bold num" style="font-size:1.15rem">{{ a.outstanding|inr }}</div></div>
+      <div class="text-end"><div class="lab">Limit</div><div class="num" style="font-size:.85rem">{{ a.limit|inr if a.limit else '—' }}</div></div>
+    </div>
+  </div>
+  <div class="px-1 pt-2 d-flex flex-column flex-grow-1">
+    {% if a.util is not none %}
+    <div class="d-flex justify-content-between" style="font-size:.74rem"><span class="muted">Utilisation · available {{ a.available|inr }}</span>
+      <span class="fw-semibold {{ 'text-danger' if a.util >= 75 else 'text-warning' if a.util >= 30 else 'text-success' }}">{{ '%.0f'|format(a.util) }}%</span></div>
+    <div class="bar mt-1 {{ 'tone-red' if a.util >= 75 else 'tone-amber' if a.util >= 30 else 'tone-green' }}"><span style="width:{{ [a.util, 100]|min }}%"></span></div>
+    {% endif %}
+    {% set bill = a.bill %}
+    {% if bill %}
+    <div class="soft-box mt-2 d-flex align-items-center gap-2 status-{{ bill.status }}" style="font-size:.78rem">
+      <span class="chip">{{ {'paid':'Paid','due':'Due','part':'Part paid','overdue':'Overdue','check':'Not seen'}[bill.status] }}</span>
+      <span class="num">{{ bill.due|inr }}{% if bill.due_date %} · <b>{{ bill.due_date.strftime('%d %b') }}</b>{% endif %}</span>
+      {% if bill.status in ('due','part','overdue','check') %}<span class="ms-auto muted num">min {{ bill.min|inr }}</span>{% endif %}
+    </div>
+    {% endif %}
+    <div class="kv">
+      <div><span>Statement day</span><b>{{ a.billing_day_eff or '—' }}</b></div>
+      <div><span>Due day</span><b>{{ a.due_day_eff or '—' }}{% if a.grace %} <small class="muted">({{ a.grace }}d)</small>{% endif %}</b></div>
+      <div><span>Spent · {{ fy_label }}</span><b class="amount-debit">{{ a.stat.out|inr }}</b></div>
+      <div><span>EMIs on card</span><b>{% set act = a.linked|selectattr('status','equalto','active')|list %}{% if act %}{{ act|length }} · {{ a.emi_out|inr }}{% else %}—{% endif %}</b></div>
+    </div>
+    {% if a.reward_note %}<div class="muted mt-2" style="font-size:.72rem"><i class="bi bi-stars me-1"></i>{{ a.reward_note }}</div>{% endif %}
+    {{ acts(a, 'card') }}
+  </div>
+</div>
+{% endmacro %}
+
+{% macro loan_card(a) %}
+{% set l = a.loan %}
+<div class="acct tone-{{ a.tone }}">
+  <div class="top">
+    <div class="ai"><i class="bi bi-house-door"></i></div>
+    <div class="min-w-0 flex-grow-1">
+      <div class="nm"><a href="{{ url_for('account_detail', acc_id=a.id) }}">{{ a.name }}</a></div>
+      <div class="meta">{{ a.subtype or 'Loan' }} · {{ a.bank or (l.lender if l else '—') }}{% if a.last4 %} · ····{{ a.last4 }}{% endif %}</div>
+    </div>
+    {% if l and l.bullet %}<span class="chip tone-amber">Bullet</span>{% endif %}
+  </div>
+  <div class="mt-3"><div class="small-label">Outstanding</div>
+    <div class="big amount-debit">{{ a.outstanding|inr }}</div><div class="meta">{{ src(a) }}</div></div>
+  {% if l and not l.bullet and l.total_emis %}
+  <div class="d-flex justify-content-between mt-2" style="font-size:.74rem"><span class="muted">{{ l.emis_paid }} of {{ l.total_emis }} EMIs</span><span>{{ l.progress }}%</span></div>
+  <div class="bar mt-1"><span style="width:{{ l.progress }}%"></span></div>
+  {% endif %}
+  <div class="kv">
+    <div><span>{{ 'Repayment' if l and l.bullet else 'EMI' }}</span><b>{{ (l.emi_amount|inr) if l and l.emi_amount else '—' }}</b></div>
+    <div><span>Rate</span><b>{{ ('%g'|format(a.rate_eff) ~ '%') if a.rate_eff else '—' }}</b></div>
+    <div><span>{{ 'Due on' if l and l.bullet else 'Next EMI' }}</span><b>{{ l.next_due.strftime('%d %b %Y') if l and l.next_due else '—' }}</b></div>
+    <div><span>Ends</span><b>{{ l.end.strftime('%b %Y') if l and l.end else '—' }}</b></div>
+  </div>
+  {{ acts(a, 'loan') }}
+</div>
+{% endmacro %}
+
+{% macro emi_card(l) %}
+<div class="acct tone-violet {% if l.status != 'active' %}opacity-75{% endif %}" id="loan-{{ l.id }}">
+  <div class="top">
+    <div class="ai"><i class="bi bi-calendar2-check"></i></div>
+    <div class="min-w-0 flex-grow-1">
+      <div class="nm">{{ l.name }}</div>
+      <div class="meta">{{ l.purchase_desc or '' }}{% if l.card %}{{ ' · ' if l.purchase_desc }}on {{ l.card }}{% endif %}</div>
+    </div>
+    <span class="chip {{ 'tone-amber' if l.status == 'active' else 'tone-green' }}">{{ 'Active' if l.status == 'active' else 'Paid off' }}</span>
+  </div>
+  <div class="d-flex align-items-end justify-content-between mt-3">
+    <div><div class="small-label">Outstanding</div><div class="big {{ 'amount-debit' if l.outstanding_now else 'amount-credit' }}">{{ l.outstanding_now|inr if l.outstanding_now else 'Paid' }}</div></div>
+    <div class="text-end"><div class="small-label">EMI</div><div class="fw-bold num">{{ l.emi_amount|inr }}<span class="muted fw-normal" style="font-size:.72rem">/mo</span></div></div>
+  </div>
+  {% if l.total_emis %}
+  <div class="d-flex justify-content-between mt-2" style="font-size:.74rem"><span class="muted">{{ l.emis_paid }} of {{ l.total_emis }} paid · {{ l.remaining }} left</span><span>{{ l.progress }}%</span></div>
+  <div class="bar mt-1 {{ 'tone-green' if l.status != 'active' else '' }}"><span style="width:{{ l.progress }}%"></span></div>
+  {% endif %}
+  <div class="kv">
+    <div><span>Lender</span><b>{{ l.lender or '—' }}</b></div>
+    <div><span>Rate</span><b>{{ ('%g'|format(l.interest_rate) ~ '%') if l.interest_rate else '—' }}</b></div>
+    <div><span>Original</span><b>{{ l.original_amount|inr if l.original_amount else '—' }}</b></div>
+    <div><span>Ends</span><b>{{ l.end.strftime('%b %Y') if l.end else (l.last_emi_date or '—') }}</b></div>
+  </div>
+  {% if l.source == 'statement' %}<div class="mt-2" style="font-size:.7rem;color:var(--teal)"><i class="bi bi-arrow-repeat me-1"></i>Updated from statements · last {{ l.last_statement_date|short_date }}</div>{% endif %}
+  <div class="acts">
+    {% if l.status == 'active' %}
+    <form action="{{ url_for('mark_emi_paid', loan_id=l.id) }}" method="post"><input type="hidden" name="next" value="{{ request.full_path }}">
+      <button class="btn btn-soft"><i class="bi bi-check2 me-1"></i>EMI paid</button></form>
+    {% endif %}
+    <button class="btn btn-soft" data-edit='{{ l.form|tojson }}' title="Edit"><i class="bi bi-gear"></i></button>
+    <form action="{{ url_for('delete_loan', loan_id=l.id) }}" method="post" class="ms-auto" onsubmit="return confirm('Delete this EMI record?')">
+      <input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-soft text-danger" title="Delete"><i class="bi bi-trash"></i></button></form>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro value_card(a, kind) %}
+<div class="acct tone-{{ a.tone }}">
+  <div class="top">
+    <div class="ai"><i class="bi {{ KINDS[kind].icon }}"></i></div>
+    <div class="min-w-0 flex-grow-1">
+      <div class="nm"><a href="{{ url_for('account_detail', acc_id=a.id) }}">{{ a.name }}</a></div>
+      <div class="meta">{{ a.subtype or KINDS[kind].label }}{% if a.bank %} · {{ a.bank }}{% endif %}{% if a.holder %} · {{ a.holder }}{% endif %}</div>
+    </div>
+  </div>
+  <div class="mt-3"><div class="small-label">{{ 'Balance' if kind == 'wallet' else 'Value' }}</div>
+    <div class="big">{{ money(a.balance) }}</div><div class="meta">{{ src(a) }}</div></div>
+  {% if kind == 'deposit' %}
+  <div class="kv">
+    <div><span>Invested</span><b>{{ a.principal|inr if a.principal else '—' }}</b></div>
+    <div><span>Rate</span><b>{{ ('%g'|format(a.rate) ~ '%') if a.rate else '—' }}</b></div>
+    <div><span>Matures</span><b>{{ a.maturity.strftime('%d %b %Y') if a.maturity else '—' }}{% if a.days_to_maturity is not none and 0 <= a.days_to_maturity <= 60 %} <span class="chip tone-amber">{{ a.days_to_maturity }}d</span>{% endif %}</b></div>
+    <div><span>At maturity</span><b>{% set mv = a.maturity_amount or a.maturity_est %}{{ mv|inr if mv else '—' }}{% if not a.maturity_amount and a.maturity_est %} <small class="muted">est.</small>{% endif %}</b></div>
+  </div>
+  {% endif %}
+  {{ acts(a, kind) }}
+</div>
+{% endmacro %}
+
+{% macro add_tile(k, text) %}
+<a href="#" data-add="{{ k }}" class="acct add-tile tone-{{ KINDS[k].tone }}">
+  <div class="ai mb-2"><i class="bi bi-plus-lg"></i></div><div class="fw-semibold" style="color:var(--text)">{{ text }}</div>
+  {% if k in ('bank','card','loan') %}<div class="muted text-center mt-1" style="font-size:.74rem">or use Add Statements — it creates the account for you</div>{% endif %}
+</a>
+{% endmacro %}
+
+{% block content %}
+{% set T = b.totals %}
+<div class="sum-strip mb-3">
+  <a href="{{ url_for('networth_page') }}" class="hub-card kpi hero tone-indigo text-decoration-none"><div class="d-flex justify-content-between"><div><div class="lbl">Net worth</div>
+    <div class="val">{{ b.net|inr }}</div><div class="sub">assets − loans − card dues</div></div><div class="ico"><i class="bi bi-graph-up"></i></div></div></a>
+  <div class="hub-card kpi tone-teal"><div class="lbl">Assets</div><div class="val">{{ b.assets|inr }}</div>
+    <div class="sub">banks {{ T.bank|inr }} · investments {{ (T.broker + T.deposit)|inr }}</div></div>
+  <div class="hub-card kpi tone-coral"><div class="lbl">Liabilities</div><div class="val">{{ b.liabilities|inr }}</div>
+    <div class="sub">loans &amp; EMIs {{ (T.loan + T.emi)|inr }} · cards {{ T.card|inr }}</div></div>
+  <div class="hub-card kpi tone-amber"><div class="lbl">Monthly EMIs</div><div class="val">{{ b.monthly_emi|inr }}</div>
+    <div class="sub">{{ b.counts.emi + b.counts.loan }} running loans &amp; EMIs</div></div>
+</div>
+
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <div class="pill-tabs flex-grow-1">
+    <a href="{{ url_for('accounts', fy=fy_param) }}" class="tone-indigo {{ 'active' if tab == 'all' }}"><i class="bi bi-collection"></i>All</a>
+    {% for k in kinds %}{% set K = KINDS[k] %}
+      <a href="{{ url_for('accounts', tab=k, fy=fy_param) }}" class="tone-{{ K.tone }} {{ 'active' if tab == k }}"><i class="bi {{ K.icon }}"></i>{{ K.short }}<span class="n">{{ b.counts[k] }}</span></a>
+    {% endfor %}
+    {% if b.closed %}<a href="{{ url_for('accounts', tab='closed') }}" class="tone-slate {{ 'active' if tab == 'closed' }}"><i class="bi bi-archive"></i>Closed<span class="n">{{ b.closed|length }}</span></a>{% endif %}
+  </div>
+  <div class="dropdown">
+    <button class="btn btn-sm btn-soft dropdown-toggle" data-bs-toggle="dropdown" title="Year for the in / out figures"><i class="bi bi-calendar3 me-1"></i>{{ fy_label }}</button>
+    <ul class="dropdown-menu dropdown-menu-end">{% for lbl, p in fy_opts %}<li><a class="dropdown-item {{ 'active' if p == fy_param }}" href="{{ url_for('accounts', tab=tab, fy=p) }}">{{ lbl }}</a></li>{% endfor %}</ul>
+  </div>
+  <div class="dropdown">
+    <button class="btn btn-sm btn-primary dropdown-toggle" data-bs-toggle="dropdown" id="addMenu"><i class="bi bi-plus-lg me-1"></i>Add</button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      {% for k in kinds %}{% set K = KINDS[k] %}<li><a class="dropdown-item tone-{{ K.tone }}" href="#" data-add="{{ k }}"><i class="bi {{ K.icon }} me-2 t-tone"></i>{{ K.label }}</a></li>{% endfor %}
+    </ul>
+  </div>
+</div>
+
+{% if tab == 'all' %}
+<div class="row g-3">
+  {% for k in kinds %}{% set K = KINDS[k] %}
+  {% if k == 'emi' %}{% set items = b.emis|selectattr('status','equalto','active')|list %}
+  {% elif k == 'broker' %}{% set items = b.brokers %}
+  {% else %}{% set items = b.groups[k]|selectattr('status','equalto','active')|list %}{% endif %}
+  <div class="col-12 col-lg-6 col-xxl-4">
+    <div class="hub-card group-card tone-{{ K.tone }} h-100">
+      <div class="card-head">
+        <span class="kpi p-0 border-0" style="box-shadow:none"><span class="ico" style="width:36px;height:36px"><i class="bi {{ K.icon }}"></i></span></span>
+        <div><h6>{{ K.label }}</h6><div class="muted" style="font-size:.74rem">{{ items|length }} · {{ T[k]|inr }}{{ ' owed' if not K.asset }}</div></div>
+        <a class="more" href="{{ url_for('accounts', tab=k) }}">Open <i class="bi bi-arrow-right"></i></a>
+      </div>
+      {% for a in items[:6] %}
+        <div class="list-row">
+          {% if k == 'emi' %}
+            <div class="min-w-0"><a href="{{ url_for('accounts', tab='emi') }}#loan-{{ a.id }}">{{ a.name }}</a><div class="muted text-truncate" style="font-size:.72rem">{{ a.card or a.lender }} · {{ a.remaining }} left</div></div>
+            <div class="amt amount-debit">{{ a.outstanding_now|inr }}<small>{{ a.emi_amount|inr }}/mo</small></div>
+          {% elif k == 'broker' %}
+            <div class="min-w-0"><a href="{{ url_for('accounts', tab='broker') }}">{{ a.name }}</a><div class="muted" style="font-size:.72rem">{{ a.stocks }} stocks · {{ a.trades }} trades</div></div>
+            <div class="amt">{{ a.value|inr }}<small class="{{ 'amount-credit' if a.pnl >= 0 else 'amount-debit' }}">{{ '+' if a.pnl >= 0 }}{{ a.pnl|inr }}</small></div>
+          {% else %}
+            <div class="min-w-0"><a href="{{ url_for('account_detail', acc_id=a.id) }}">{{ a.name }}</a>
+              <div class="muted text-truncate" style="font-size:.72rem">{{ a.subtype or '' }}{% if a.last4 %} · ····{{ a.last4 }}{% endif %}{% if k == 'card' and a.bill and a.bill.status != 'paid' and a.bill.due_date %} · due {{ a.bill.due_date.strftime('%d %b') }}{% endif %}</div></div>
+            {% set v = a.outstanding if k in ('card','loan') else a.balance %}
+            <div class="amt {{ 'amount-debit' if not K.asset and v else '' }}">{{ money(v) }}<small>{% if k == 'card' and a.util is not none %}{{ '%.0f'|format(a.util) }}% used{% else %}{{ a.as_of|short_date if a.as_of else '' }}{% endif %}</small></div>
+          {% endif %}
+        </div>
+      {% else %}
+        <div class="empty py-3"><a href="#" data-add="{{ k }}" class="btn btn-sm btn-soft"><i class="bi bi-plus-lg me-1"></i>Add {{ K.short|lower if k != 'emi' else 'EMI' }}</a></div>
+      {% endfor %}
+      {% if items|length > 6 %}<div class="text-center mt-2"><a class="small" href="{{ url_for('accounts', tab=k) }}">+ {{ items|length - 6 }} more</a></div>{% endif %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% elif tab == 'closed' %}
+<div class="hub-card">
+  {% for a in b.closed %}
+  <div class="list-row">
+    <div class="min-w-0"><a href="{{ url_for('account_detail', acc_id=a.id) }}" class="fw-semibold">{{ a.name }}</a><div class="muted" style="font-size:.74rem">{{ KINDS[a.kind].label if a.kind in KINDS else a.kind }} · {{ a.bank }}</div></div>
+    <form method="post" action="{{ url_for('account_status', acc_id=a.id) }}" class="ms-auto"><input type="hidden" name="action" value="open">
+      <input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-soft">Re-open</button></form>
+  </div>
+  {% endfor %}
+</div>
+
+{% else %}
+{% set K = KINDS[tab] %}
+<div class="d-flex align-items-center gap-2 mb-2 tone-{{ K.tone }}">
+  <h6 class="mb-0"><i class="bi {{ K.icon }} me-2 t-tone"></i>{{ K.label }}</h6>
+  <span class="muted" style="font-size:.8rem">· {{ b.counts[tab] }} · total {{ T[tab]|inr }}{{ ' owed' if not K.asset }}</span>
+  {% if tab == 'card' %}<a href="{{ url_for('tools_page') }}" class="ms-auto small"><i class="bi bi-tools me-1"></i>Best card today &amp; utilisation</a>{% endif %}
+  {% if tab in ('loan', 'emi') %}<a href="{{ url_for('tools_page') }}#prepay" class="ms-auto small"><i class="bi bi-calculator me-1"></i>Prepayment calculator</a>{% endif %}
+</div>
+<div class="row g-3">
+  {% if tab == 'emi' %}
+    {% for l in b.emis|sort(attribute='status') %}<div class="col-12 col-md-6 col-xl-4">{{ emi_card(l) }}</div>{% endfor %}
+  {% elif tab == 'broker' %}
+    {% for br in b.brokers %}
+    <div class="col-12 col-md-6 col-xl-4">
+      <div class="acct tone-blue">
+        <div class="top"><div class="ai"><i class="bi bi-graph-up-arrow"></i></div>
+          <div class="flex-grow-1"><div class="nm">{{ br.name }}</div><div class="meta">{% if br.client_id %}Client {{ br.client_id }}{% endif %}{% if br.demat_id %} · Demat {{ br.demat_id }}{% endif %}{% if not br.client_id and not br.demat_id %}Broker account{% endif %}</div></div></div>
+        <div class="mt-3"><div class="small-label">Holdings value</div><div class="big">{{ br.value|inr }}</div>
+          <div class="meta">invested {{ br.invested|inr }} · <span class="{{ 'amount-credit' if br.pnl >= 0 else 'amount-debit' }}">{{ '+' if br.pnl >= 0 }}{{ br.pnl|inr }}</span></div></div>
+        <div class="kv"><div><span>Stocks held</span><b>{{ br.stocks }}</b></div><div><span>Trades</span><b>{{ br.trades }}{% if br.last_trade %} <small class="muted">· {{ br.last_trade|short_date }}</small>{% endif %}</b></div></div>
+        <div class="acts">
+          <a class="btn btn-soft" href="{{ url_for('inv_trades') }}"><i class="bi bi-arrow-left-right me-1"></i>Trades</a>
+          <a class="btn btn-soft" href="{{ url_for('inv_portfolio') }}"><i class="bi bi-briefcase me-1"></i>Portfolio</a>
+          <button class="btn btn-soft" data-edit='{{ br.form|tojson }}' title="Edit"><i class="bi bi-gear"></i></button>
+          {% if not br.trades %}<form method="post" action="{{ url_for('broker_delete', bid=br.id) }}" class="ms-auto" onsubmit="return confirm('Remove this broker?')"><button class="btn btn-soft text-danger"><i class="bi bi-trash"></i></button></form>{% endif %}
+        </div>
+      </div>
+    </div>
+    {% endfor %}
+  {% else %}
+    {% for a in b.groups[tab] if a.status == 'active' %}
+      <div class="col-12 col-md-6 col-xl-4">
+        {% if tab == 'bank' %}{{ bank_card(a) }}{% elif tab == 'card' %}{{ credit_card(a) }}{% elif tab == 'loan' %}{{ loan_card(a) }}{% else %}{{ value_card(a, tab) }}{% endif %}
+      </div>
+    {% endfor %}
+  {% endif %}
+  <div class="col-12 col-md-6 col-xl-4">{{ add_tile(tab, 'Add ' ~ {'bank':'a bank account','card':'a credit card','loan':'a loan','emi':'an EMI','deposit':'a deposit or scheme','broker':'a broker account','wallet':'a wallet or cash','asset':'an asset'}[tab]) }}</div>
+</div>
+{% if tab == 'wallet' %}
+  <div class="d-flex align-items-center gap-2 mt-4 mb-2 tone-pink"><h6 class="mb-0"><i class="bi bi-gem me-2 t-tone"></i>Other assets</h6>
+    <span class="muted" style="font-size:.8rem">· {{ b.counts.asset }} · total {{ T.asset|inr }}</span></div>
+  <div class="row g-3">
+    {% for a in b.groups.asset if a.status == 'active' %}<div class="col-12 col-md-6 col-xl-4">{{ value_card(a, 'asset') }}</div>{% endfor %}
+    <div class="col-12 col-md-6 col-xl-4">{{ add_tile('asset', 'Add an asset') }}</div>
+  </div>
+{% endif %}
+{% endif %}
+
+{% include '_account_form.html' %}
+{% endblock %}

@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+{% block title %}Demat check – Finance Hub{% endblock %}
+{% block page_title %}Demat check · CDSL / NSDL{% endblock %}
+{% block report_menu %}
+<li><a class="dropdown-item" href="{{ url_for('report_demat', fmt='xlsx') }}"><i class="bi bi-file-earmark-excel me-2"></i>Excel</a></li>
+<li><a class="dropdown-item" href="{{ url_for('report_demat', fmt='pdf') }}"><i class="bi bi-file-earmark-pdf me-2"></i>PDF</a></li>
+{% endblock %}
+
+{% macro recon_table(rows, linked) %}
+<div class="table-responsive"><table class="table table-sm align-middle mb-0">
+  <thead><tr><th>Security</th><th class="text-end">Demat</th><th class="text-end">Broker trades</th><th class="text-end" title="Trades done but not yet settled on the statement date (T+1)">Settling</th>
+    <th class="text-end" title="Broker's own holdings statement, if imported">Broker stmt</th><th class="text-end">Difference</th><th class="text-end">Demat value</th><th>Status</th></tr></thead>
+  <tbody>{% for r in rows %}
+    <tr><td><a href="{{ url_for('inv_stock', sid=r.id) }}">{{ r.name }}</a><div class="muted" style="font-size:.68rem">{{ r.isin }}</div></td>
+      <td class="text-end num">{{ '%g'|format(r.demat) }}</td>
+      <td class="text-end num">{{ '%g'|format(r.trades) if linked else '—' }}</td>
+      <td class="text-end num muted">{{ ('%+g'|format(r.transit)) if r.transit else '' }}</td>
+      <td class="text-end num muted">{{ '%g'|format(r.bstmt) if r.bstmt is not none else '' }}</td>
+      <td class="text-end num {{ 'amount-debit' if r.diff < 0 else ('amount-credit' if r.diff > 0 else 'muted') }}">{{ ('%+g'|format(r.diff)) if linked and r.diff else '' }}</td>
+      <td class="text-end num">{{ r.value|inr }}</td>
+      <td><span class="chip tone-{{ r.tone }}">{{ r.status }}</span>{% if r.hint %}<div class="muted" style="font-size:.7rem;max-width:300px">{{ r.hint }}</div>{% endif %}</td></tr>
+  {% else %}<tr><td colspan="8"><div class="empty"><i class="bi bi-inbox"></i>No holdings to compare yet — import a CDSL / NSDL statement for this account.</div></td></tr>{% endfor %}</tbody>
+</table></div>
+{% endmacro %}
+
+{% macro counts(s) %}
+<span class="chip tone-green">{{ s.ok }} match</span>{% if s.warn %} <span class="chip tone-amber">{{ s.warn }} to check</span>{% endif %}
+{% if s.bad %} <span class="chip tone-red">{{ s.bad }} differ</span>{% endif %}{% if s.unlinked %} <span class="chip tone-slate">{{ s.unlinked }} not compared</span>{% endif %}
+{% endmacro %}
+
+{% block content %}
+<div class="hub-card mb-3 tone-indigo">
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <div class="kpi p-0 border-0" style="box-shadow:none"><div class="ico"><i class="bi bi-shield-check"></i></div></div>
+    <div class="flex-grow-1" style="font-size:.84rem"><b>CDSL and NSDL hold your securities; brokers only trade them.</b>
+      Each demat account (opened through a broker as the DP) is checked against that broker: the quantity in the depository
+      statement should equal what you bought minus what you sold through the broker, counting trades settled by the statement
+      date (T+1). Import a CAS or the DP's holding statement on <a href="{{ url_for('inv_import') }}">Import broker files</a>.</div>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3"><div class="hub-card kpi hero tone-indigo h-100"><div class="lbl">Demat holdings value</div><div class="val">{{ tot.value|inr }}</div>
+    <div class="sub">{{ tot.accounts }} demat account{{ 's' if tot.accounts != 1 }}</div></div></div>
+  <div class="col-6 col-lg-3"><div class="hub-card kpi tone-green h-100"><div class="lbl">Matching</div><div class="val">{{ tot.ok }}</div><div class="sub">holdings</div></div></div>
+  <div class="col-6 col-lg-3"><div class="hub-card kpi tone-red h-100"><div class="lbl">Differ / to check</div><div class="val">{{ tot.bad }} / {{ tot.warn }}</div><div class="sub">holdings</div></div></div>
+  <div class="col-6 col-lg-3"><div class="hub-card kpi tone-slate h-100"><div class="lbl">Not linked to a broker</div><div class="val">{{ tot.unlinked }}</div><div class="sub">demat accounts</div></div></div>
+</div>
+
+<div class="pill-tabs mb-3">
+  <a href="{{ url_for('demat_page', view='account') }}" class="tone-teal {{ 'active' if view == 'account' }}">By demat account<span class="n">{{ acc|length }}</span></a>
+  <a href="{{ url_for('demat_page', view='broker') }}" class="tone-blue {{ 'active' if view == 'broker' }}">By broker<span class="n">{{ brk|length }}</span></a>
+  <a href="{{ url_for('demat_page', view='add') }}" class="tone-violet {{ 'active' if view == 'add' or edit }}"><i class="bi bi-plus-lg me-1"></i>{{ 'Edit' if edit else 'Add' }} demat account</a>
+</div>
+
+{% if view == 'add' or edit %}
+<div class="hub-card mb-3" style="max-width:760px">
+  <form method="post" action="{{ url_for('demat_save') }}" class="row g-2">
+    {% if edit %}<input type="hidden" name="id" value="{{ edit.id }}">{% endif %}
+    <div class="col-md-3"><label class="form-label">Depository</label><select name="depository" class="form-select form-select-sm">
+      {% for d in ('CDSL', 'NSDL') %}<option {{ 'selected' if edit and edit.depository == d }}>{{ d }}</option>{% endfor %}</select></div>
+    <div class="col-md-5"><label class="form-label">DP (usually the broker)</label><input name="dp_name" class="form-control form-control-sm" value="{{ edit.dp_name if edit else '' }}"></div>
+    <div class="col-md-4"><label class="form-label">Linked broker</label><select name="broker_id" class="form-select form-select-sm"><option value="">—</option>
+      {% for b in brokers %}<option value="{{ b.id }}" {{ 'selected' if edit and edit.broker_id == b.id }}>{{ b.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-4"><label class="form-label">BO ID (CDSL, 16 digits)</label><input name="bo_id" class="form-control form-control-sm" inputmode="numeric" value="{{ edit.account_no if edit and edit.depository == 'CDSL' else '' }}"></div>
+    <div class="col-md-4"><label class="form-label">or DP ID</label><input name="dp_id" class="form-control form-control-sm" placeholder="IN300000 / 12000000" value="{{ edit.dp_id if edit and edit.depository == 'NSDL' else '' }}"></div>
+    <div class="col-md-4"><label class="form-label">and client ID (8 digits)</label><input name="client_id" class="form-control form-control-sm" inputmode="numeric" value="{{ edit.client_id if edit and edit.depository == 'NSDL' else '' }}"></div>
+    <div class="col-md-6"><label class="form-label">Holder(s)</label><input name="holder" class="form-control form-control-sm" value="{{ edit.holder if edit else '' }}"></div>
+    <div class="col-md-6"><label class="form-label">Notes</label><input name="notes" class="form-control form-control-sm" value="{{ edit.notes if edit else '' }}"></div>
+    <div class="col-12 d-flex gap-2"><button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>Save</button>
+      <a class="btn btn-sm btn-soft" href="{{ url_for('demat_page') }}">Cancel</a>
+      <span class="muted ms-auto" style="font-size:.74rem">Demat accounts are also created automatically when a CAS is imported.</span></div>
+  </form>
+</div>
+
+{% elif view == 'broker' %}
+{% for g in brk %}
+<div class="hub-card p-0 mb-3" style="overflow:hidden">
+  <div class="d-flex flex-wrap align-items-center gap-2 px-3 py-2" style="border-bottom:1px solid var(--border)">
+    <b style="font-size:1rem">{{ g.name }}</b>
+    {% for d in g.demats %}<span class="chip tone-teal">{{ d.label }}{% if d.as_of %} · {{ d.as_of|short_date }}{% endif %}</span>{% endfor %}
+    {% if g.mixed_dates %}<span class="chip tone-amber" title="Statements of different dates are added together">different statement dates</span>{% endif %}
+    <span class="ms-auto">{{ counts(g.s) }}</span>
+  </div>
+  {% if g.no_demat %}<div class="empty"><i class="bi bi-link"></i>No demat account linked to {{ g.name }} — import its CAS or
+    <a href="{{ url_for('demat_page', view='add') }}">add the demat account</a>.</div>
+  {% elif g.no_statement %}<div class="empty"><i class="bi bi-file-earmark"></i>No depository statement imported yet for this broker's demat.</div>
+  {% else %}{{ recon_table(g.rows, true) }}{% endif %}
+</div>
+{% else %}<div class="hub-card"><div class="empty"><i class="bi bi-diagram-2"></i>No brokers with trades or demat accounts yet.</div></div>{% endfor %}
+
+{% else %}
+{% for g in acc %}
+<div class="hub-card p-0 mb-3" style="overflow:hidden">
+  <div class="d-flex flex-wrap align-items-center gap-2 px-3 py-2" style="border-bottom:1px solid var(--border)">
+    <span class="chip tone-{{ 'blue' if g.demat.depository == 'NSDL' else 'teal' }}">{{ g.demat.depository }}</span>
+    <b>{{ g.demat.dp_name or 'Demat account' }}</b><span class="muted num" style="font-size:.8rem">{{ g.masked }}</span>
+    {% if g.demat.holder %}<span class="muted" style="font-size:.76rem">· {{ g.demat.holder }}</span>{% endif %}
+    {% if g.as_of %}<span class="muted" style="font-size:.76rem">· statement {{ g.as_of|short_date }}</span>{% endif %}
+    <form method="post" action="{{ url_for('demat_save') }}" class="d-flex align-items-center gap-1 ms-auto">
+      <input type="hidden" name="id" value="{{ g.id }}"><input type="hidden" name="action" value="link">
+      <span class="muted" style="font-size:.74rem">broker</span>
+      <select name="broker_id" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()"><option value="">— link —</option>
+        {% for b in brokers %}<option value="{{ b.id }}" {{ 'selected' if g.broker_id == b.id }}>{{ b.name }}</option>{% endfor %}</select>
+    </form>
+    <a class="btn btn-sm btn-soft" href="{{ url_for('demat_page', edit=g.id) }}" title="Edit"><i class="bi bi-pencil"></i></a>
+    <form method="post" action="{{ url_for('demat_delete', did=g.id) }}" onsubmit="return confirm('Remove this demat account and its statement holdings? Trades are not touched.')">
+      <button class="btn btn-sm btn-soft text-danger" title="Remove"><i class="bi bi-trash"></i></button></form>
+  </div>
+  <div class="px-3 py-2 d-flex flex-wrap gap-2 align-items-center" style="font-size:.8rem">{{ counts(g.s) }}
+    <span class="ms-auto muted">demat value <b class="num">{{ g.s.value|inr }}</b>{% if g.s.diff_value %} · differences worth <b class="num">{{ g.s.diff_value|inr }}</b>{% endif %}</span></div>
+  {{ recon_table(g.rows, g.broker_id) }}
+</div>
+{% else %}
+<div class="hub-card"><div class="empty"><i class="bi bi-safe"></i>No demat accounts yet. Import a CDSL / NSDL CAS (it lists every demat account in your PAN)
+  on <a href="{{ url_for('inv_import') }}">Import broker files</a>, or <a href="{{ url_for('demat_page', view='add') }}">add one by hand</a>.</div></div>
+{% endfor %}
+{% endif %}
+{% endblock %}

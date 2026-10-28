@@ -1,0 +1,130 @@
+{% extends "base.html" %}
+{% block title %}{{ sec.name or sec.symbol }} – Finance Hub{% endblock %}
+{% block page_title %}{{ sec.name or sec.symbol }}{% endblock %}
+
+{% block head %}
+<style>
+.tbl td, .tbl th { font-size:.8rem; vertical-align:middle; } .muted { color:var(--muted); }
+.ladder { display:flex; gap:4px; }
+.ladder div { flex:1; height:34px; border-radius:6px; background:rgba(148,163,184,.15); display:flex; align-items:center; justify-content:center; font-size:.72rem; color:var(--muted); }
+.ladder div.on { background:rgba(59,130,246,.55); color:#fff; }
+.ladder div.part { background:linear-gradient(90deg, rgba(59,130,246,.55) var(--p), rgba(148,163,184,.15) var(--p)); color:#fff; }
+.act { font-size:.75rem; font-weight:700; padding:.25em .6em; border-radius:6px; }
+.act-BUY, .act-ADD { background:rgba(34,197,94,.2); color:#4ade80; } .act-TRIM, .act-SELL { background:rgba(239,68,68,.2); color:#f87171; }
+.act-WAIT, .act-HOLD { background:rgba(148,163,184,.15); color:var(--text-soft); } .act-BLOCKED, .act-SET { background:rgba(245,158,11,.18); color:#fbbf24; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <a href="{{ url_for('inv_portfolio') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Portfolio</a>
+  <span class="muted small">{{ sec.symbol }} · {{ sec.isin or 'no ISIN' }} · {{ sec.exchange }}</span>
+</div>
+
+{% if r %}{% set g = r.suggestion %}
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3"><div class="stat-card"><div class="lbl">Holding</div><div class="val" style="font-size:1.3rem">{{ '%g'|format(r.qty) }} sh</div>
+    <div class="small muted">avg ₹{{ '{:,.2f}'.format(r.avg) }} · invested {{ r.invested|inr }}</div></div></div>
+  <div class="col-6 col-lg-3"><div class="stat-card"><div class="lbl">Value</div><div class="val" style="font-size:1.3rem">{{ r.value|inr }}</div>
+    <div class="small muted">₹{{ '{:,.2f}'.format(r.cmp) }} ({{ sec.cmp_source or 'avg cost' }}{% if r.cmp_date %}, {{ r.cmp_date|short_date }}{% endif %})</div></div></div>
+  <div class="col-6 col-lg-3"><div class="stat-card"><div class="lbl">P&amp;L</div>
+    <div class="val {{ 'text-success' if r.pnl >= 0 else 'text-danger' }}" style="font-size:1.3rem">{{ r.pnl|inr }}</div>
+    <div class="small muted">realised {{ r.realised|inr }}</div></div></div>
+  <div class="col-6 col-lg-3"><div class="stat-card"><div class="lbl">Weight</div><div class="val" style="font-size:1.3rem">{{ '%.1f'|format(r.weight) }}%</div>
+    <div class="small muted">{% if r.limit_pct is defined %}limit {{ '%g'|format(r.limit_pct) }}% ({{ r.bucket }}){% else %}set Core / Satellite{% endif %}</div></div></div>
+</div>
+
+<div class="hub-card mb-3 py-2"><form method="post" action="{{ url_for('asset_set') }}" class="d-flex align-items-center gap-2">
+  <input type="hidden" name="sid" value="{{ sec.id }}"><input type="hidden" name="next" value="{{ request.path }}">
+  <span class="small-label">Asset type</span>
+  <select name="asset_type" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()"><option value="">— not set —</option>
+    {% for t in asset_types %}<option value="{{ t.key }}" {{ 'selected' if sec['asset_type'] == t.key }}>{{ t.label }}</option>{% endfor %}
+    <option value="__auto__">↺ automatic</option></select>
+  <a href="{{ url_for('asset_types_page') }}" class="small ms-auto">Manage types</a></form></div>
+<div class="chart-card mb-3">
+  <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+    <h6 class="mb-0"><i class="bi bi-bar-chart-steps me-2 text-primary"></i>Tranche plan</h6>
+    {% if r.tranche_amt is defined %}<span class="small muted">tranche ≈ {{ r.tranche_amt|inr }} · {{ '%.1f'|format(r.tranches_used) }} of {{ st.max_tranches|int }} used</span>{% endif %}
+    <span class="ms-auto"><span class="act act-{{ g.action }}">{{ g.action }}</span> <span class="small">{{ g.tranche }}</span></span>
+  </div>
+  {% if r.tranches_used is defined %}{% set n = st.max_tranches|int %}
+  <div class="ladder mb-2">{% for i in range(n) %}{% set f = r.tranches_used - i %}
+    <div class="{{ 'on' if f >= 1 else ('part' if f > 0 else '') }}" {% if 0 < f < 1 %}style="--p:{{ (f * 100)|round|int }}%"{% endif %}>{{ i + 1 }}</div>{% endfor %}</div>
+  {% endif %}
+  <div class="small">{% if g.qty %}<strong>{{ g.action }} {{ '%g'|format(g.qty) }} shares</strong> ≈ {{ g.amount|inr }} at ₹{{ '{:,.2f}'.format(g.price) }}. {% endif %}
+    <span class="muted">{{ g.reason }}</span></div>
+  {% if g.action in ('BUY','ADD','TRIM','SELL') %}
+  <form method="post" action="{{ url_for('inv_instruction_add') }}" class="row g-2 mt-1 align-items-end">
+    <input type="hidden" name="security_id" value="{{ sec.id }}"><input type="hidden" name="action" value="{{ g.action }}">
+    <input type="hidden" name="tranche" value="{{ g.tranche }}"><input type="hidden" name="reason" value="{{ g.reason }}">
+    <input type="hidden" name="next" value="{{ url_for('inv_stock', sid=sec.id) }}">
+    <div class="col-md-2"><label class="form-label small muted mb-0">Qty</label><input name="qty" class="form-control form-control-sm" value="{{ '%g'|format(g.qty) }}"></div>
+    <div class="col-md-2"><label class="form-label small muted mb-0">Limit price</label><input name="limit_price" class="form-control form-control-sm" value="{{ '%.2f'|format(g.price) }}"></div>
+    <input type="hidden" name="amount" value="{{ g.amount }}">
+    <div class="col-md-3"><label class="form-label small muted mb-0">Broker</label>
+      <select name="broker_id" class="form-select form-select-sm"><option value="">any</option>{% for b in brokers %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-3"><label class="form-label small muted mb-0">Note</label><input name="notes" class="form-control form-control-sm"></div>
+    <div class="col-md-2"><button class="btn btn-sm btn-success w-100">Accept as instruction</button></div>
+  </form>
+  {% endif %}
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-lg-5">
+    <div class="chart-card">
+      <h6><i class="bi bi-sliders me-2 text-primary"></i>Plan for this stock</h6>
+      <form method="post" action="{{ url_for('inv_stock_save', sid=sec.id) }}" class="row g-2">
+        <div class="col-6"><label class="form-label small muted mb-0">Name</label><input name="name" class="form-control form-control-sm" value="{{ sec.name or '' }}"></div>
+        <div class="col-6"><label class="form-label small muted mb-0">NSE symbol (for live prices)</label><input name="symbol" class="form-control form-control-sm" value="{{ sec.symbol }}"></div>
+        <div class="col-6"><label class="form-label small muted mb-0">Core / Satellite</label>
+          <select name="bucket" class="form-select form-select-sm"><option value="">— not set —</option>
+            <option value="core" {% if sec.bucket=='core' %}selected{% endif %}>Core ({{ '%g'|format(st.core_stock_max) }}% limit)</option>
+            <option value="satellite" {% if sec.bucket=='satellite' %}selected{% endif %}>Satellite ({{ '%g'|format(st.sat_stock_max) }}% limit)</option></select></div>
+        <div class="col-6"><label class="form-label small muted mb-0">Sector</label><input name="sector" class="form-control form-control-sm" list="sectorList" value="{{ sec.sector or '' }}">
+          <datalist id="sectorList">{% for x in sectors %}<option value="{{ x }}">{% endfor %}</datalist></div>
+        <div class="col-6"><label class="form-label small muted mb-0">Plan status</label>
+          <select name="plan_status" class="form-select form-select-sm">
+            {% for v, l in [('active','Active — build up'),('paused','Paused — no suggestions'),('exit','Exit — sell in tranches'),('watch','Watch — not bought yet')] %}
+            <option value="{{ v }}" {% if sec.plan_status==v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+        <div class="col-6"><label class="form-label small muted mb-0">Next tranche when</label>
+          <select name="add_rule" class="form-select form-select-sm">
+            {% for v, l in [('any','any time (room permitting)'),('dip','price falls by step % from last buy'),('rise','price rises by step % from last buy'),('gap','days have passed since last buy')] %}
+            <option value="{{ v }}" {% if sec.add_rule==v %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+        <div class="col-4"><label class="form-label small muted mb-0">Step %</label><input name="step_pct" class="form-control form-control-sm" value="{{ '%g'|format(sec.step_pct or 10) }}"></div>
+        <div class="col-4"><label class="form-label small muted mb-0">Days</label><input name="gap_days" class="form-control form-control-sm" value="{{ sec.gap_days or 30 }}"></div>
+        <div class="col-4"><label class="form-label small muted mb-0">Price now (₹)</label><input name="cmp" class="form-control form-control-sm" placeholder="{{ '%.2f'|format(sec.cmp or 0) }}"></div>
+        <div class="col-12"><label class="form-label small muted mb-0">Notes / thesis</label><textarea name="notes" class="form-control form-control-sm" rows="2">{{ sec.notes or '' }}</textarea></div>
+        <div class="col-12"><button class="btn btn-sm btn-primary">Save plan</button></div>
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-7">
+    <div class="chart-card mb-3">
+      <h6><i class="bi bi-list-ul me-2 text-primary"></i>Trades</h6>
+      <table class="table table-dark table-sm tbl mb-0">
+        <thead><tr><th>Date</th><th>Broker</th><th>Side</th><th class="text-end">Qty</th><th class="text-end">Price</th><th class="text-end">Charges</th></tr></thead>
+        <tbody>{% for t in trades %}<tr><td>{{ t.trade_date|short_date }}</td><td>{{ t.broker }}</td>
+          <td class="{{ 'text-success' if t.side == 'buy' else 'text-danger' }}">{{ t.side|upper }}</td><td class="text-end">{{ '%g'|format(t.qty) }}</td>
+          <td class="text-end">{{ '{:,.2f}'.format(t.price) }}</td><td class="text-end">{{ '{:,.2f}'.format(t.charges or 0) }}</td></tr>
+        {% else %}<tr><td colspan="6" class="muted text-center py-3">No trades.</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+    {% if holds %}
+    <div class="chart-card mb-3"><h6><i class="bi bi-safe me-2 text-primary"></i>In holdings statements</h6>
+      <table class="table table-dark table-sm tbl mb-0"><thead><tr><th>As of</th><th>Source</th><th class="text-end">Qty</th><th class="text-end">Avg</th><th class="text-end">Price</th></tr></thead>
+        <tbody>{% for h in holds %}<tr><td>{{ h.as_of|short_date }}</td><td>{{ h.broker or h.source }}</td><td class="text-end">{{ '%g'|format(h.qty) }}</td>
+          <td class="text-end">{{ '{:,.2f}'.format(h.avg_cost or 0) }}</td><td class="text-end">{{ '{:,.2f}'.format(h.close_price or 0) }}</td></tr>{% endfor %}</tbody></table></div>
+    {% endif %}
+    <div class="chart-card"><h6><i class="bi bi-card-checklist me-2 text-primary"></i>Instructions</h6>
+      <table class="table table-dark table-sm tbl mb-0"><thead><tr><th>Date</th><th>Action</th><th class="text-end">Qty</th><th class="text-end">Limit</th><th>Broker</th><th>Status</th><th></th></tr></thead>
+        <tbody>{% for i in instr %}<tr><td>{{ i.created_at|short_date }}</td><td><span class="act act-{{ i.action }}">{{ i.action }}</span> <span class="small muted">{{ i.tranche }}</span></td>
+          <td class="text-end">{{ '%g'|format(i.qty or 0) }}</td><td class="text-end">{{ '{:,.2f}'.format(i.limit_price or 0) }}</td><td>{{ i.broker or 'any' }}</td>
+          <td>{{ i.status }}{% if i.done_at %} {{ i.done_at|short_date }}{% endif %}</td>
+          <td>{% if i.status == 'open' %}<form method="post" action="{{ url_for('inv_instruction_status', iid=i.id) }}" class="d-inline">
+            <input type="hidden" name="next" value="{{ url_for('inv_stock', sid=sec.id) }}"><input type="hidden" name="status" value="cancelled">
+            <button class="btn btn-sm btn-outline-secondary py-0">×</button></form>{% endif %}</td></tr>
+        {% else %}<tr><td colspan="7" class="muted text-center py-3">None.</td></tr>{% endfor %}</tbody></table></div>
+  </div>
+</div>
+{% endblock %}

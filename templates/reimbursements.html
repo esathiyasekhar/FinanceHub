@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Reimbursements – Finance Hub{% endblock %}
+{% block page_title %}Reimbursements · {{ payer }}{% endblock %}
+{% block report_menu %}
+<li><a class="dropdown-item" href="{{ url_for('report_reimb', fmt='xlsx', payer=payer) }}"><i class="bi bi-file-earmark-excel me-2"></i>Excel</a></li>
+<li><a class="dropdown-item" href="{{ url_for('report_reimb', fmt='pdf', payer=payer) }}"><i class="bi bi-file-earmark-pdf me-2"></i>PDF</a></li>
+{% endblock %}
+{% block content %}
+{% if payers|length > 1 %}<div class="pill-tabs mb-3">{% for p in payers %}<a href="{{ url_for('reimb_page', payer=p) }}" class="tone-teal {{ 'active' if p == payer }}">{{ p }}</a>{% endfor %}</div>{% endif %}
+<div class="row g-3 mb-3">
+  <div class="col-md-4"><div class="hub-card kpi hero tone-indigo"><div class="lbl">Still to be paid back</div><div class="val">{{ st.outstanding|inr }}</div>
+    <div class="sub">claimed and not yet claimed</div></div></div>
+  <div class="col-md-4"><div class="hub-card kpi tone-amber"><div class="lbl">Not claimed yet</div><div class="val">{{ st.open_total|inr }}</div><div class="sub">{{ st.open_items|length }} expenses</div></div></div>
+  <div class="col-md-4"><div class="hub-card kpi tone-teal"><div class="lbl">Received</div><div class="val">{{ st.received_total|inr }}</div><div class="sub">from {{ payer }}</div></div></div>
+</div>
+<div class="muted mb-3" style="font-size:.8rem"><i class="bi bi-info-circle me-1"></i>Expenses you pay for {{ payer }} (travel, stay …) are kept out of your own spending,
+  and the money {{ payer }} pays back is not counted as income. Mark expenses on <a href="{{ url_for('transactions') }}">Transactions</a>
+  (tick rows → <b>Claim from…</b>), group them into a claim, and apply each payment you receive.</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="hub-card mb-3">
+      <form method="post" action="{{ url_for('reimb_claim_new') }}">
+        <input type="hidden" name="payer" value="{{ payer }}">
+        <div class="card-head"><h6><i class="bi bi-inbox me-2 text-primary"></i>Expenses not yet in a claim</h6></div>
+        {% for i in st.open_items %}
+        <div class="list-row"><input type="checkbox" class="form-check-input" name="ids" value="{{ i.id }}" checked>
+          <div class="min-w-0"><div style="font-size:.84rem">{{ i.display_name or i.description }}</div><div class="muted" style="font-size:.72rem">{{ i.date|short_date }} · {{ i.account }}</div></div>
+          <b class="ms-auto num">{{ i.amount|inr }}</b></div>
+        {% else %}<div class="empty"><i class="bi bi-check2-circle"></i>Nothing waiting to be claimed.</div>{% endfor %}
+        {% if st.open_items %}
+        <div class="row g-2 mt-2 align-items-end">
+          <div class="col-md-5"><label class="form-label">Claim title</label><input name="title" class="form-control form-control-sm" placeholder="e.g. Site visit, October" required></div>
+          <div class="col-md-3"><label class="form-label">Submitted on</label><input type="date" name="claim_date" value="{{ today.isoformat() }}" class="form-control form-control-sm"></div>
+          <div class="col-md-4"><button class="btn btn-sm btn-primary w-100"><i class="bi bi-send me-1"></i>Create claim</button></div>
+        </div>{% endif %}
+      </form>
+    </div>
+    {% for c in st.claims %}
+    <div class="hub-card mb-3 tone-{{ 'green' if c.state == 'paid' else ('blue' if c.state == 'part paid' else 'amber') }}">
+      <div class="card-head"><h6>{{ c.title }}</h6><span class="chip">{{ c.state }}</span>
+        <span class="more muted" style="font-size:.76rem">{{ c.claim_date|short_date }} · {{ c.total|inr }} · received {{ c.received|inr }}</span></div>
+      <div class="bar mb-2"><span style="width:{{ [100 * c.received / (c.total or 1), 100]|min }}%"></span></div>
+      {% for i in c['items'] %}<div class="d-flex" style="font-size:.8rem"><span class="muted me-2">{{ i.date|short_date }}</span>{{ (i.display_name or i.description)[:60] }}
+        <span class="ms-auto num">{{ i.amount|inr }}</span>
+        <form method="post" action="{{ url_for('reimb_claim_edit', cid=c.id) }}" class="ms-1"><input type="hidden" name="payer" value="{{ payer }}"><input type="hidden" name="action" value="remove_item"><input type="hidden" name="txn" value="{{ i.id }}"><button class="btn btn-link btn-sm p-0 muted" title="Take out of this claim"><i class="bi bi-x"></i></button></form></div>{% endfor %}
+      {% for r in c.receipts %}<div class="d-flex mt-1" style="font-size:.8rem;color:var(--amount-in)"><span class="me-2">{{ r.date|short_date }}</span>received · {{ r.account }}<span class="ms-auto num">{{ r.amount|inr }}</span>
+        <form method="post" action="{{ url_for('reimb_receipt') }}" class="ms-1"><input type="hidden" name="payer" value="{{ payer }}"><input type="hidden" name="action" value="unapply"><input type="hidden" name="txn" value="{{ r.txn_id }}"><button class="btn btn-link btn-sm p-0 muted"><i class="bi bi-x"></i></button></form></div>{% endfor %}
+      <form method="post" action="{{ url_for('reimb_claim_edit', cid=c.id) }}" class="text-end mt-2" onsubmit="return confirm('Delete this claim? Its expenses go back to “not yet claimed”.')">
+        <input type="hidden" name="payer" value="{{ payer }}"><input type="hidden" name="action" value="delete"><button class="btn btn-sm btn-soft text-danger"><i class="bi bi-trash"></i></button></form>
+    </div>
+    {% endfor %}
+  </div>
+  <div class="col-lg-5">
+    <div class="hub-card mb-3">
+      <h6><i class="bi bi-arrow-down-left-circle me-2 text-success"></i>Payments from {{ payer }}</h6>
+      <div class="muted mb-2" style="font-size:.76rem">Each credit from {{ payer }} is either your fee (normal income) or a pay-back of a claim.</div>
+      {% for t in st.pending_receipts + st.fee_credits %}
+      <form method="post" action="{{ url_for('reimb_receipt') }}" class="list-row flex-wrap">
+        <input type="hidden" name="payer" value="{{ payer }}"><input type="hidden" name="txn" value="{{ t.id }}">
+        <div class="min-w-0"><b class="num">{{ t.amount|inr }}</b> <span class="muted" style="font-size:.74rem">{{ t.date|short_date }} · {{ t.account }}</span>
+          <div class="muted" style="font-size:.7rem">{{ t.cat }}</div></div>
+        <div class="ms-auto d-flex gap-1">
+          {% if st.claims %}<select name="claim" class="form-select form-select-sm" style="width:auto">
+            {% for c in st.claims if c.balance > 1 %}<option value="{{ c.id }}" {{ 'selected' if st.suggest.get(t.id) == c.id }}>{{ c.title }} ({{ c.balance|inr }})</option>{% endfor %}</select>
+          <button class="btn btn-sm btn-primary" name="action" value="apply">Pay-back</button>{% endif %}
+          {% if t.reimb_payer %}<button class="btn btn-sm btn-soft" name="action" value="fee">Fee</button>{% else %}<button class="btn btn-sm btn-soft" name="action" value="receipt" title="Mark as a pay-back to apply later">Pay-back later</button>{% endif %}
+        </div>
+      </form>
+      {% else %}<div class="empty"><i class="bi bi-inbox"></i>No payments from {{ payer }} found yet. The Hub looks for the names listed for {{ payer }} on People &amp; entities.</div>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}

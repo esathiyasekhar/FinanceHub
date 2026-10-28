@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block title %}Categories – Finance Hub{% endblock %}
+{% block page_title %}Categories — Type › Head › Sub-head › Item{% endblock %}
+
+{% block head %}
+<style>
+.cat td { font-size:.84rem; vertical-align:middle; }
+.cat tr.l1 td { font-weight:700; background:var(--tint); }
+.cat tr.l2 td { font-weight:600; }
+.cat tr.l4 td { color:var(--text-soft); }
+.cat .act { opacity:.35; }
+.cat tr:hover .act { opacity:1; }
+.cat tr:target td { background:rgba(59,130,246,.15); }
+.kind-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="text-muted mb-3" style="font-size:.82rem">
+  Four levels: <strong>Type</strong> (Income / Expenses / Transfers / Investments) › <strong>Head</strong> › <strong>Sub-head</strong> › <strong>Item</strong>.
+  Hover a row to add a heading under it, rename, move or delete. Deleting asks where its transactions should go.
+  Name a single transaction or a whole payee from the <a href="{{ url_for('transactions') }}">Transactions</a> page.
+</div>
+<div class="chart-card p-0">
+  <table class="table table-dark table-sm mb-0 cat">
+    <thead><tr><th>Heading</th><th class="text-end" style="width:110px">Transactions</th><th class="text-end" style="width:70px">Rules</th><th style="width:300px"></th></tr></thead>
+    <tbody>
+    {% for o in flat %}
+      <tr class="l{{ o.level }}" id="c{{ o.id }}">
+        <td style="padding-left:{{ (o.level-1)*1.5 + 0.5 }}rem">
+          {% if o.level == 1 %}<span class="kind-dot" style="background:{{ kind_color[o.kind] }}"></span>{% endif %}
+          <a class="text-reset text-decoration-none" href="{{ url_for('transactions', cat=o.id, start='2000-01-01', end='2099-12-31') }}">{{ o.name }}</a>
+          {% if o.level == 4 %}<small class="text-muted ms-1">item</small>{% endif %}
+        </td>
+        <td class="text-end text-muted">{{ o.n or '' }}</td>
+        <td class="text-end text-muted">{{ o.rules or '' }}</td>
+        <td class="text-end act">
+          {% if o.level < 4 %}<button class="btn btn-sm btn-outline-success py-0" onclick="act('add', {{ o.id }}, {{ o.level }}, this)"><i class="bi bi-plus"></i> {{ ['','Head','Sub-head','Item'][o.level] }}</button>{% endif %}
+          {% if o.level > 1 %}
+          <button class="btn btn-sm btn-outline-secondary py-0" onclick="act('rename', {{ o.id }}, {{ o.level }}, this)"><i class="bi bi-pencil"></i></button>
+          <button class="btn btn-sm btn-outline-secondary py-0" onclick="act('move', {{ o.id }}, {{ o.level }}, this)"><i class="bi bi-arrows-move"></i></button>
+          <button class="btn btn-sm btn-outline-danger py-0" onclick="act('delete', {{ o.id }}, {{ o.level }}, this)"><i class="bi bi-trash"></i></button>
+          {% endif %}
+        </td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div class="modal fade" id="catModal" tabindex="-1"><div class="modal-dialog"><div class="modal-content" style="background:var(--navy2);border:1px solid var(--border)">
+  <form method="post" id="catForm">
+    <div class="modal-header py-2"><h6 class="modal-title" id="catTitle"></h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+    <div class="modal-body">
+      <div class="text-muted mb-2" style="font-size:.8rem" id="catPath"></div>
+      <div id="fName"><label class="form-label" style="font-size:.8rem">Name</label><input name="name" class="form-control form-control-sm" id="catName"></div>
+      <input type="hidden" name="parent_id" id="catParent">
+      <div id="fTarget" style="display:none"><label class="form-label" style="font-size:.8rem" id="targetLbl"></label>
+        <select class="form-select form-select-sm" id="catTarget">
+          {% for o in flat %}<option value="{{ o.id }}" data-level="{{ o.level }}">{{ o.label }}</option>{% endfor %}
+        </select></div>
+    </div>
+    <div class="modal-footer py-2"><button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
+      <button class="btn btn-sm btn-primary" id="catGo">Save</button></div>
+  </form>
+</div></div></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const PATHS = { {% for o in flat %}{{ o.id }}: {{ o.path|tojson }},{% endfor %} };
+const COUNTS = { {% for o in flat %}{{ o.id }}: {{ o.n }},{% endfor %} };
+const m = new bootstrap.Modal(document.getElementById('catModal'));
+const $ = id => document.getElementById(id);
+function act(kind, id, level) {
+  const form = $('catForm'); $('catPath').textContent = PATHS[id];
+  $('fName').style.display = ''; $('fTarget').style.display = 'none';
+  $('catTarget').name = ''; $('catName').value = ''; $('catParent').value = '';
+  $('catGo').className = 'btn btn-sm btn-primary';
+  if (kind === 'add') {
+    $('catTitle').textContent = 'Add a ' + ['', 'Head', 'Sub-head', 'Item'][level] + ' under this';
+    form.action = '{{ url_for("cat_add") }}'; $('catParent').value = id;
+  } else if (kind === 'rename') {
+    $('catTitle').textContent = 'Rename'; form.action = '/categories/' + id + '/rename';
+    $('catName').value = PATHS[id].split(' › ').pop();
+  } else if (kind === 'move') {
+    $('catTitle').textContent = 'Move under…'; form.action = '/categories/' + id + '/move';
+    $('fName').style.display = 'none'; $('fTarget').style.display = ''; $('catTarget').name = 'parent_id';
+    $('targetLbl').textContent = 'New parent heading';
+    [...$('catTarget').options].forEach(o => o.disabled = +o.dataset.level >= 4 || o.value == id);
+  } else {
+    $('catTitle').textContent = 'Delete “' + PATHS[id].split(' › ').pop() + '”'; form.action = '/categories/' + id + '/delete';
+    $('fName').style.display = 'none'; $('fTarget').style.display = ''; $('catTarget').name = 'target_id';
+    $('targetLbl').textContent = 'Move its ' + COUNTS[id] + ' transaction(s) and rules to';
+    [...$('catTarget').options].forEach(o => o.disabled = PATHS[o.value] === PATHS[id] || PATHS[o.value].startsWith(PATHS[id] + ' › '));
+    $('catGo').className = 'btn btn-sm btn-danger';
+  }
+  m.show();
+}
+</script>
+{% endblock %}

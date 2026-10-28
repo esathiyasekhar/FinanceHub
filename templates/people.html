@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}People & Entities – Finance Hub{% endblock %}
+{% block page_title %}People &amp; entities{% endblock %}
+
+{% block content %}
+<div class="hub-card mb-3 tone-indigo">
+  <form method="post" action="{{ url_for('profile_save') }}" class="row g-2 align-items-end">
+    <div class="col-md-4"><label class="form-label">Your name (shown in the Hub)</label><input name="display_name" class="form-control form-control-sm" value="{{ display_name or '' }}" placeholder="optional"></div>
+    <div class="col-md-6 muted" style="font-size:.76rem">Your own name as banks print it goes in <b>Self → Names on statements</b> below — it recognises transfers between your
+      accounts and payments to / from your company. Everything here is stored only in your encrypted database.</div>
+    <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Save</button></div>
+  </form>
+</div>
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="chart-card">
+      <h6><i class="bi bi-people me-2 text-primary"></i>People — who the money was spent by / for</h6>
+      <div class="text-muted mb-2" style="font-size:.78rem">
+        Card statements print the add-on cardholder's name in different ways. List every variant under <em>Names on statements</em>
+        (comma separated) and those transactions are tagged to that person automatically.
+      </div>
+      <table class="table table-dark table-sm mb-2">
+        <thead><tr><th>Name</th><th>Names on statements</th><th class="text-end">Txns</th><th style="width:120px"></th></tr></thead>
+        <tbody>
+        {% for p in people %}
+          <tr>
+            <td><input form="pf{{ p.id }}" name="name" class="form-control form-control-sm" value="{{ p.name }}" {% if p.name=='Self' %}readonly{% endif %}></td>
+            <td><input form="pf{{ p.id }}" name="aliases" class="form-control form-control-sm" value="{{ p.aliases }}"></td>
+            <td class="text-end"><a href="{{ url_for('transactions', person=p.name, start='2000-01-01', end='2099-12-31') }}">{{ p.n }}</a></td>
+            <td class="text-end"><form id="pf{{ p.id }}" method="post" action="{{ url_for('person_update', pid=p.id) }}" class="d-inline">
+              <button class="btn btn-sm btn-primary py-0">Save</button></form>
+            {% if p.name != 'Self' %}
+            <form method="post" action="{{ url_for('person_delete', pid=p.id) }}" class="d-inline" onsubmit="return confirm('Remove {{ p.name }}?')">
+              <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button></form>{% endif %}
+            </td></tr>
+        {% endfor %}
+          <tr>
+            <td><input form="pfnew" name="name" class="form-control form-control-sm" placeholder="New person"></td>
+            <td><input form="pfnew" name="aliases" class="form-control form-control-sm" placeholder="names as printed on statements, e.g. RAVI K, K RAVI"></td>
+            <td></td><td class="text-end"><form id="pfnew" method="post" action="{{ url_for('person_add') }}">
+              <button class="btn btn-sm btn-success py-0"><i class="bi bi-plus"></i> Add</button></form></td>
+          </tr>
+        </tbody>
+      </table>
+      <h6 class="mt-3" style="font-size:.8rem">Names found on your statements</h6>
+      <table class="table table-dark table-sm mb-0" style="font-size:.8rem">
+        <thead><tr><th>Cardholder on statement</th><th>Tagged as</th><th class="text-end">Txns</th></tr></thead>
+        <tbody>{% for h in holders %}<tr><td>{{ h['cardholder'] }}</td><td>{{ h['p'] or 'Self' }}</td><td class="text-end">{{ h['n'] }}</td></tr>{% endfor %}</tbody>
+      </table>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="chart-card">
+      <h6><i class="bi bi-building me-2 text-primary"></i>Books, companies &amp; clients</h6>
+      <div class="text-muted mb-2" style="font-size:.78rem"><b>Book</b> = a set of accounts you keep separately (Personal, or a company you own).
+        <b>Client / payer</b> = someone who pays you (salary, consultancy) and may reimburse expenses.
+        <em>Names on statements</em>: how the name appears in bank narrations (e.g. the registered company name), comma separated —
+        used to recognise transfers and to put a company's bank account in its book.</div>
+      <table class="table table-dark table-sm mb-0">
+        <thead><tr><th>Name</th><th>Kind</th><th>Names on statements</th><th class="text-end">Txns</th><th style="width:110px"></th></tr></thead>
+        <tbody>
+        {% for e in entities %}
+          <tr>
+            <td><input form="ef{{ e.id }}" name="name" class="form-control form-control-sm" value="{{ e.name }}" {% if e.name=='Personal' %}readonly{% endif %}></td>
+            <td>{% if e.name != 'Personal' %}<select form="ef{{ e.id }}" name="role" class="form-select form-select-sm">
+              {% for k, v in [('book', 'Book (company)'), ('payer', 'Client / payer'), ('other', 'Other')] %}<option value="{{ k }}" {{ 'selected' if (e.role or 'book') == k }}>{{ v }}</option>{% endfor %}</select>{% else %}<span class="muted" style="font-size:.78rem">Book</span>{% endif %}</td>
+            <td>{% if e.name != 'Personal' %}<input form="ef{{ e.id }}" name="aliases" class="form-control form-control-sm" value="{{ e.aliases or '' }}">{% endif %}</td>
+            <td class="text-end"><a href="{{ url_for('breakdown', entity=e.name) }}">{{ e.n }}</a></td>
+            <td class="text-end">{% if e.name != 'Personal' %}<form id="ef{{ e.id }}" method="post" action="{{ url_for('entity_update', eid=e.id) }}" class="d-inline">
+              <button class="btn btn-sm btn-primary py-0">Save</button></form>{% endif %}
+            {% if e.name != 'Personal' %}
+            <form method="post" action="{{ url_for('entity_delete', eid=e.id) }}" class="d-inline" onsubmit="return confirm('Remove {{ e.name }}? Its transactions become Personal.')">
+              <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button></form>{% endif %}
+            </td></tr>
+        {% endfor %}
+          <tr>
+            <td><input form="efnew" name="name" class="form-control form-control-sm" placeholder="Short name"></td>
+            <td><select form="efnew" name="role" class="form-select form-select-sm"><option value="book">Book (company)</option><option value="payer">Client / payer</option><option value="other">Other</option></select></td>
+            <td><input form="efnew" name="aliases" class="form-control form-control-sm" placeholder="Registered / printed names"></td><td></td>
+            <td class="text-end"><form id="efnew" method="post" action="{{ url_for('entity_add') }}">
+              <button class="btn btn-sm btn-success py-0"><i class="bi bi-plus"></i> Add</button></form></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}

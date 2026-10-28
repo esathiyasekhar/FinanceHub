@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Month close – Finance Hub{% endblock %}
+{% block page_title %}Month close · {{ st.label }}{% endblock %}
+
+{% block head %}
+<style>
+  .step { display:flex; gap:.85rem; align-items:flex-start; padding:.85rem .2rem; border-bottom:1px solid var(--border); }
+  .step:last-child { border-bottom:0; }
+  .step .ck { width:30px; height:30px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center; font-size:1rem;
+              border:2px solid var(--border); color:transparent; background:transparent; }
+  .step.done .ck { background:var(--green); border-color:var(--green); color:#fff; }
+  .step .auto { font-size:.62rem; font-weight:700; text-transform:uppercase; letter-spacing:.5px; color:var(--muted); }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="pill-tabs mb-3">
+  {% for m in months|reverse %}{% set k = m.strftime('%Y-%m') %}
+  <a href="{{ url_for('month_close_page', m=k) }}" class="tone-violet {{ 'active' if m == ms }}">{{ m.strftime('%b %y') }}{% if k in closed %} <i class="bi bi-check2"></i>{% endif %}</a>
+  {% endfor %}
+</div>
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="hub-card">
+      <div class="card-head"><h6><i class="bi bi-check2-square me-2 text-primary"></i>Checklist</h6>
+        <span class="more muted" style="font-size:.78rem">{{ st.done }} / {{ st.total }}</span></div>
+      <div class="bar mb-2 tone-{{ 'green' if st.closed else 'violet' }}"><span style="width:{{ 100 if st.closed else st.pct }}%"></span></div>
+      {% for i in st['items'] %}
+      <div class="step {{ 'done' if i.done }}">
+        {% if i.auto %}
+          <div class="ck"><i class="bi bi-check-lg"></i></div>
+        {% else %}
+          <form method="post" action="{{ url_for('month_close_tick') }}"><input type="hidden" name="month" value="{{ st.month }}"><input type="hidden" name="item" value="{{ i.key }}">
+            <input type="hidden" name="done" value="{{ '0' if i.done else '1' }}"><button class="ck" style="cursor:pointer" title="{{ 'Untick' if i.done else 'Tick' }}"><i class="bi bi-check-lg"></i></button></form>
+        {% endif %}
+        <div class="flex-grow-1">
+          <div class="fw-semibold" style="font-size:.9rem">{{ i.label }}</div>
+          {% if i.auto %}<div class="auto">checked automatically</div>{% endif %}
+          {% if i.detail %}<div class="muted" style="font-size:.78rem">{{ i.detail }}</div>{% endif %}
+        </div>
+        {% if i.link and not i.done %}<a href="{{ i.link }}" class="btn btn-sm btn-soft">Fix <i class="bi bi-arrow-right"></i></a>{% endif %}
+      </div>
+      {% endfor %}
+      <form method="post" action="{{ url_for('month_close_tick') }}" class="mt-3">
+        <input type="hidden" name="month" value="{{ st.month }}"><input type="hidden" name="item" value="_closed">
+        {% if st.closed %}
+          <input type="hidden" name="done" value="0">
+          <div class="d-flex align-items-center gap-2"><span class="chip tone-green"><i class="bi bi-lock"></i>Closed {{ st.closed_at|short_date }}</span>
+            <button class="btn btn-sm btn-soft ms-auto">Re-open month</button></div>
+        {% else %}
+          <input type="hidden" name="done" value="1">
+          <button class="btn btn-cta w-100" {% if st.done < st.total %}onclick="return confirm('Some steps are not done yet. Close {{ st.label }} anyway?')"{% endif %}>
+            <i class="bi bi-lock me-1"></i>Close {{ st.label }}</button>
+        {% endif %}
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="hub-card mb-3">
+      <h6><i class="bi bi-journal-text me-2 text-primary"></i>{{ st.label }} in numbers</h6>
+      <div class="list-row"><span class="muted">Income</span><b class="ms-auto num amount-credit">{{ d.income|inr }}</b></div>
+      <div class="list-row"><span class="muted">Spent</span><b class="ms-auto num amount-debit">{{ d.expense|inr }}</b></div>
+      <div class="list-row"><span class="muted">Invested</span><b class="ms-auto num">{{ d.investment|inr }}</b></div>
+      <div class="list-row"><span class="muted">Saved</span><b class="ms-auto num">{{ d.saved|inr }}{% if d.income > 0 and d.saved >= 0 %} <span class="muted fw-normal">({{ (100 * d.saved / d.income)|round|int }}%)</span>{% endif %}</b></div>
+      <div class="list-row"><span class="muted">Transactions</span><b class="ms-auto num">{{ d.txn_count }}</b></div>
+    </div>
+    <div class="hub-card mb-3">
+      <h6><i class="bi bi-trophy me-2 text-warning"></i>Top heads</h6>
+      {% for h, v in d.heads[:6] %}<div class="list-row" style="font-size:.84rem"><span>{{ h }}</span><b class="ms-auto num">{{ v|inr }}</b></div>
+      {% else %}<div class="empty py-2">No spending recorded.</div>{% endfor %}
+    </div>
+    {% if budgets %}
+    <div class="hub-card">
+      <h6><i class="bi bi-pie-chart me-2 text-primary"></i>Budgets</h6>
+      {% for r in budgets %}
+      <div class="mb-2 tone-{{ 'red' if r.state == 'over' else 'amber' if r.state == 'warn' else 'teal' }}"><div class="d-flex" style="font-size:.8rem"><span>{{ r.name }}</span>
+        <span class="ms-auto num">{{ r.spent|inr }} / {{ r.budget|inr }}</span></div><div class="bar mt-1"><span style="width:{{ [r.pct,100]|min }}%"></span></div></div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

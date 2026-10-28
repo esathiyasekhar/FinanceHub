@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block title %}Net worth – Finance Hub{% endblock %}
+{% block page_title %}Net worth{% endblock %}
+
+{% block content %}
+{% set T = b.totals %}
+<div class="row g-3 mb-3">
+  <div class="col-md-4"><div class="hub-card kpi hero tone-indigo h-100"><div class="lbl">Net worth today</div><div class="val">{{ b.net|inr }}</div>
+    <div class="sub">{% if hist|length > 1 %}{% set ch = b.net - hist[0].net %}{{ '+' if ch >= 0 else '−' }}{{ ch|abs|inr }} since {{ hist[0].day|short_date }}{% else %}first snapshot today{% endif %}</div></div></div>
+  <div class="col-md-4"><div class="hub-card kpi tone-teal h-100"><div class="lbl">Assets</div><div class="val">{{ b.assets|inr }}</div><div class="sub">what you own</div></div></div>
+  <div class="col-md-4"><div class="hub-card kpi tone-coral h-100"><div class="lbl">Liabilities</div><div class="val">{{ b.liabilities|inr }}</div>
+    <div class="sub">debt-to-asset {{ ((100 * b.liabilities / b.assets)|round|int ~ '%') if b.assets else '—' }}</div></div></div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-8">
+    <div class="hub-card h-100">
+      <div class="card-head"><h6><i class="bi bi-graph-up me-2 text-primary"></i>History</h6>
+        <form method="post" action="{{ url_for('snapshot_now') }}" class="more"><button class="btn btn-sm btn-soft"><i class="bi bi-camera me-1"></i>Record now</button></form></div>
+      <div style="height:280px"><canvas id="hist"></canvas></div>
+      <div class="muted mt-1" style="font-size:.72rem">A snapshot is saved automatically each day you open Home, Accounts or this page.</div>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="hub-card h-100">
+      <h6><i class="bi bi-pie-chart me-2 text-primary"></i>What you own</h6>
+      <div style="height:220px"><canvas id="mix"></canvas></div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  {% for side, is_asset in [('Assets', true), ('Liabilities', false)] %}
+  <div class="col-lg-6">
+    <div class="hub-card h-100">
+      <h6 class="{{ 'amount-credit' if is_asset else 'amount-debit' }}">{{ side }}</h6>
+      {% for k in kinds if KINDS[k].asset == is_asset %}{% set K = KINDS[k] %}
+        <div class="list-row tone-{{ K.tone }}">
+          <span class="ri"><i class="bi {{ K.icon }}"></i></span>
+          <div><a href="{{ url_for('accounts', tab=k) }}" class="fw-semibold" style="color:var(--text);text-decoration:none">{{ K.label }}</a>
+            <div class="muted" style="font-size:.72rem">{{ b.counts[k] }} item{{ 's' if b.counts[k] != 1 }}</div></div>
+          <div class="ms-auto text-end"><b class="num">{{ T[k]|inr }}</b>
+            {% set tot = b.assets if is_asset else b.liabilities %}<div class="muted" style="font-size:.7rem">{{ ((100 * T[k] / tot)|round|int ~ '%') if tot else '' }}</div></div>
+        </div>
+        {% if k == 'broker' %}{% set items = b.brokers %}{% elif k == 'emi' %}{% set items = b.emis|selectattr('status','equalto','active')|list %}{% else %}{% set items = b.groups[k]|selectattr('status','equalto','active')|list %}{% endif %}
+        {% for a in items %}
+          {% set v = a.value if k == 'broker' else (a.outstanding_now if k == 'emi' else (a.outstanding if k in ('card','loan') else a.balance)) %}
+          <div class="d-flex ps-5 py-1" style="font-size:.8rem"><span class="muted text-truncate">{{ a.name }}</span>
+            <span class="ms-auto num {{ '' if v is not none else 'muted' }}">{{ v|inr if v is not none else 'no balance' }}</span></div>
+        {% endfor %}
+      {% endfor %}
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const h = {{ hist_json|safe }};
+  new Chart(document.getElementById('hist'), {type: 'line', data: {labels: h.map(r => r.d), datasets: [
+    {label: 'Net worth', data: h.map(r => r.n), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.14)', fill: true, tension: .3, pointRadius: h.length > 40 ? 0 : 3},
+    {label: 'Assets', data: h.map(r => r.a), borderColor: '#14b8a6', borderDash: [4, 4], tension: .3, pointRadius: 0},
+    {label: 'Liabilities', data: h.map(r => r.l), borderColor: '#f9735b', borderDash: [4, 4], tension: .3, pointRadius: 0}]},
+    options: {maintainAspectRatio: false, interaction: {mode: 'index', intersect: false},
+      plugins: {legend: {position: 'bottom', labels: {boxWidth: 10}}, tooltip: {callbacks: {label: c => c.dataset.label + ' ' + HUB.inr(c.parsed.y)}}},
+      scales: {y: {ticks: {callback: v => HUB.inrShort(v)}}, x: {grid: {display: false}}}}});
+  const T = {{ b.totals|tojson }}, K = {{ KINDS|tojson }};
+  const ks = Object.keys(K).filter(k => K[k].asset && T[k] > 0);
+  new Chart(document.getElementById('mix'), {type: 'doughnut', data: {labels: ks.map(k => K[k].label), datasets: [{data: ks.map(k => T[k]),
+    backgroundColor: ks.map(k => HUB.css('--' + K[k].tone)), borderWidth: 0}]},
+    options: {maintainAspectRatio: false, cutout: '68%', plugins: {legend: {position: 'bottom', labels: {boxWidth: 10}},
+      tooltip: {callbacks: {label: c => c.label + ' ' + HUB.inr(c.parsed)}}}}});
+})();
+</script>
+{% endblock %}

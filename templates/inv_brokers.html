@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Holdings by broker – Finance Hub{% endblock %}
+{% block page_title %}Holdings by broker{% endblock %}
+{% block report_menu %}
+<li><a class="dropdown-item" href="{{ url_for('report_trades', fmt='xlsx', broker=sel or None) }}"><i class="bi bi-file-earmark-excel me-2"></i>Excel</a></li>
+<li><a class="dropdown-item" href="{{ url_for('report_trades', fmt='pdf', broker=sel or None) }}"><i class="bi bi-file-earmark-pdf me-2"></i>PDF</a></li>
+{% endblock %}
+{% block content %}
+<div class="pill-tabs mb-3">
+  <a href="{{ url_for('inv_brokers_page') }}" class="tone-blue {{ 'active' if not sel }}">All brokers</a>
+  {% for b in brokers %}<a href="{{ url_for('inv_brokers_page', broker=b.id) }}" class="tone-blue {{ 'active' if sel == b.id }}">{{ b.name }}</a>{% endfor %}
+</div>
+<div class="row g-3 mb-3">
+  <div class="col-lg-4"><div class="hub-card kpi hero tone-indigo h-100"><div class="lbl">Holdings value</div><div class="val">{{ total|inr }}</div>
+    <div class="sub">{{ groups|length }} broker{{ 's' if groups|length != 1 }}</div></div></div>
+  <div class="col-lg-8"><div class="hub-card h-100"><h6>By asset type</h6>
+    {% for m in mix %}<div class="mb-1 tone-{{ m.tone }}"><div class="d-flex" style="font-size:.8rem"><span>{{ m.label }} <span class="muted">· {{ m.n }}</span></span>
+      <span class="ms-auto num">{{ m.value|inr }} <span class="muted">· {{ '%.0f'|format(m.pct) }}%</span></span></div><div class="bar mt-1"><span style="width:{{ m.pct }}%"></span></div></div>
+    {% else %}<div class="muted" style="font-size:.82rem">No holdings yet.</div>{% endfor %}
+    <a class="small" href="{{ url_for('asset_types_page') }}">Check / change asset types</a></div></div>
+</div>
+{% for g in groups %}
+<div class="hub-card p-0 mb-3" style="overflow:hidden">
+  <div class="d-flex flex-wrap align-items-center gap-3 px-3 py-2" style="border-bottom:1px solid var(--border)">
+    <b style="font-size:1rem">{{ g.name }}</b>{% if g.client_id %}<span class="muted" style="font-size:.76rem">client {{ g.client_id }}</span>{% endif %}
+    <span class="muted" style="font-size:.78rem">{{ g.trades }} trades{% if g.first %} · {{ g.first|short_date }} – {{ g.last|short_date }}{% endif %} · bought {{ g.buys|inr }} · sold {{ g.sells|inr }} · charges {{ g.charges|inr }}</span>
+    <div class="ms-auto text-end"><b class="num">{{ g.value|inr }}</b> <span class="num {{ 'amount-credit' if g.pnl >= 0 else 'amount-debit' }}" style="font-size:.8rem">{{ '+' if g.pnl >= 0 }}{{ g.pnl|inr }}</span>
+      {% if g.realised %}<div class="muted" style="font-size:.7rem">realised {{ g.realised|inr }}</div>{% endif %}</div>
+    <a class="btn btn-sm btn-soft" href="{{ url_for('inv_trades', broker=g.id) }}">Trades</a>
+  </div>
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Security</th><th>Type</th><th class="text-end">Qty</th><th class="text-end">Avg</th><th class="text-end">Price</th><th class="text-end">Invested</th><th class="text-end">Value</th><th class="text-end">P&amp;L</th></tr></thead>
+    <tbody>{% for r in g.rows %}
+      <tr><td><a href="{{ url_for('inv_stock', sid=r.id) }}">{{ r.name }}</a></td><td><span class="chip tone-{{ r.tone }}">{{ r.type_label }}</span></td>
+        <td class="text-end">{{ '%g'|format(r.qty) }}</td><td class="text-end num">{{ '{:,.2f}'.format(r.avg) }}</td><td class="text-end num">{{ '{:,.2f}'.format(r.cmp) }}</td>
+        <td class="text-end num">{{ r.invested|inr }}</td><td class="text-end num">{{ r.value|inr }}</td>
+        <td class="text-end num {{ 'amount-credit' if r.pnl >= 0 else 'amount-debit' }}">{{ r.pnl|inr }}</td></tr>
+    {% else %}<tr><td colspan="8" class="muted text-center py-3">Nothing held through {{ g.name }}.</td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endfor %}
+{% endblock %}

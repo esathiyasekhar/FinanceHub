@@ -1,0 +1,122 @@
+{% extends "base.html" %}
+{% block title %}Mail inbox – Finance Hub{% endblock %}
+{% block page_title %}Mail inbox{% endblock %}
+{% block content %}
+<div class="hub-card mb-3 tone-indigo">
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <div class="kpi p-0 border-0" style="box-shadow:none"><div class="ico"><i class="bi bi-envelope-paper"></i></div></div>
+    <div class="flex-grow-1" style="font-size:.84rem">The Hub reads its <b>own mailbox</b> while it is unlocked
+      {% if s.enabled == '1' %}(every {{ s.interval }} minutes){% endif %}: statements, contract notes and CDSL / NSDL statements from senders on your list
+      are read with your saved statement passwords and imported when every check passes — the rest waits here for you.
+      Mails that fail the sender check are never opened.</div>
+    {% if configured %}
+    <form method="post" action="{{ url_for('mail_check') }}" onsubmit="this.querySelector('button').disabled=true;this.querySelector('button').innerHTML='<span class=\'spinner-border spinner-border-sm me-1\'></span>Reading…'">
+      <button class="btn btn-sm btn-primary"><i class="bi bi-arrow-repeat me-1"></i>Check now</button></form>
+    {% endif %}
+  </div>
+  {% if s.last_check %}<div class="muted mt-2" style="font-size:.76rem"><i class="bi bi-clock-history me-1"></i>Last check {{ s.last_check|replace('T', ' ') }} — {{ s.last_result }}</div>{% endif %}
+</div>
+
+{% if not configured %}
+<div class="hub-card mb-3">
+  <h6><i class="bi bi-signpost-split me-2 text-primary"></i>Setting up the Hub's mailbox (once)</h6>
+  <ol class="mb-0" style="font-size:.82rem;line-height:1.6">
+    <li>Create a <b>new Gmail address only for the Hub</b> — don't use your main mailbox.</li>
+    <li>On that account turn on <b>2-Step Verification</b>, then create an <b>app password</b> (Google Account › Security › App passwords).
+      Gmail shows it once as 16 letters — paste it below. If Gmail asks, make sure IMAP is on (Gmail settings › Forwarding and POP/IMAP).</li>
+    <li>In <b>your own</b> mailbox, add the Hub's address as a forwarding address (Gmail sends a code to the Hub's mailbox — open it there),
+      then create a filter that forwards only statement mails, for example:<br>
+      <code style="font-size:.74rem;word-break:break-all">from:({{ s.senders.split()|join(' OR ') }}) has:attachment</code></li>
+    <li>Your own address goes into <i>“My forwarding addresses”</i> below only if you will also forward mails by hand.</li>
+  </ol>
+</div>
+{% endif %}
+
+<details class="hub-card mb-3" {{ 'open' if not configured }}>
+  <summary style="cursor:pointer;font-weight:700;font-size:.9rem"><i class="bi bi-gear me-2 text-primary"></i>Mailbox settings
+    {% if configured %}<span class="chip tone-{{ 'green' if s.enabled == '1' else 'slate' }} ms-2">{{ s.user }} · {{ 'automatic' if s.enabled == '1' else 'only when you press Check now' }}</span>{% endif %}</summary>
+  <form method="post" action="{{ url_for('mail_settings_save') }}" class="row g-2 mt-2" autocomplete="off">
+    <div class="col-md-4"><label class="form-label">Hub mailbox address</label><input name="user" type="email" class="form-control form-control-sm" value="{{ s.user }}" placeholder="hub.statements@gmail.com" autocomplete="off"></div>
+    <div class="col-md-4"><label class="form-label">App password</label><input name="password" type="password" class="form-control form-control-sm" autocomplete="new-password"
+      placeholder="{{ 'saved — leave empty to keep' if has_password else '16-letter app password' }}"></div>
+    <div class="col-md-3"><label class="form-label">IMAP server</label><input name="host" class="form-control form-control-sm" value="{{ s.host }}"></div>
+    <div class="col-md-1"><label class="form-label">Port</label><input name="port" class="form-control form-control-sm" value="{{ s.port }}" inputmode="numeric"></div>
+    <div class="col-md-3"><label class="form-label">Folder</label><input name="folder" class="form-control form-control-sm" value="{{ s.folder }}"></div>
+    <div class="col-md-3"><label class="form-label">Label for handled mails</label><input name="label" class="form-control form-control-sm" value="{{ s.label }}"></div>
+    <div class="col-md-3"><label class="form-label">Check every (minutes)</label><input name="interval" type="number" min="5" max="1440" class="form-control form-control-sm" value="{{ s.interval }}"></div>
+    <div class="col-md-3"><label class="form-label">First check looks back (days)</label><input name="since_days" type="number" min="1" max="400" class="form-control form-control-sm" value="{{ s.since_days }}"></div>
+    <div class="col-md-6"><label class="form-label">Senders to read (domains, one per line)</label>
+      <textarea name="senders" rows="6" class="form-control form-control-sm" style="font-family:monospace;font-size:.76rem">{{ s.senders }}</textarea>
+      <div class="muted" style="font-size:.7rem">A domain also covers its sub-domains (bank.in covers every regulated bank's .bank.in address).</div></div>
+    <div class="col-md-6"><label class="form-label">My forwarding addresses (optional)</label>
+      <textarea name="forwarders" rows="3" class="form-control form-control-sm" style="font-family:monospace;font-size:.76rem" placeholder="me@gmail.com">{{ s.forwarders }}</textarea>
+      <div class="muted" style="font-size:.7rem">Mails you forward by hand from these addresses are read too, but always wait for you —
+        the original sender cannot be verified after a manual forward. Filter forwarding keeps the original sender and is verified.</div>
+      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="enabled" id="mEn" {{ 'checked' if s.enabled == '1' }}>
+        <label class="form-check-label" for="mEn" style="font-size:.82rem">Check automatically while the Hub is open</label></div>
+      <div class="form-check"><input class="form-check-input" type="checkbox" name="auto_import" id="mAuto" {{ 'checked' if s.auto_import == '1' }}>
+        <label class="form-check-label" for="mAuto" style="font-size:.82rem">Import automatically when every check passes</label></div></div>
+    <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
+      <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>Save</button>
+      {% if configured %}<button class="btn btn-sm btn-soft" formaction="{{ url_for('mail_test') }}"><i class="bi bi-plug me-1"></i>Test connection</button>{% endif %}
+      <span class="muted ms-auto" style="font-size:.72rem"><i class="bi bi-shield-lock me-1"></i>The app password is stored only inside your encrypted data and is never shown again.</span>
+    </div>
+  </form>
+</details>
+
+<div class="pill-tabs mb-3">
+  <a href="{{ url_for('mail_page', tab='statements') }}" class="tone-teal {{ 'active' if tab == 'statements' }}">Statements</a>
+  <a href="{{ url_for('mail_page', tab='review') }}" class="tone-amber {{ 'active' if tab == 'review' }}">Waiting for you<span class="n">{{ counts.review }}</span></a>
+  <a href="{{ url_for('mail_page', tab='alerts') }}" class="tone-blue {{ 'active' if tab == 'alerts' }}">Alerts<span class="n">{{ counts.alerts }}</span></a>
+  <a href="{{ url_for('mail_page', tab='ignored') }}" class="tone-slate {{ 'active' if tab == 'ignored' }}">Other senders<span class="n">{{ counts.ignored }}</span></a>
+</div>
+
+{% if tab == 'alerts' %}<div class="muted mb-2" style="font-size:.78rem"><i class="bi bi-info-circle me-1"></i>Mails without an attachment (debit / credit / UPI / card alerts) are kept, encrypted,
+  for the next version, which will turn them into provisional entries that the monthly statement later confirms.</div>{% endif %}
+{% if tab == 'ignored' %}<div class="muted mb-2" style="font-size:.78rem"><i class="bi bi-info-circle me-1"></i>Mails from senders not on your list are only listed (never downloaded).
+  <b>Failed sender check</b> means the mail claims a bank's address but the mail server could not confirm it — treat it as suspicious.</div>{% endif %}
+
+<div class="hub-card p-0" style="overflow:hidden">
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Received</th><th>From</th><th>Mail / file</th><th>Status</th><th class="text-end"></th></tr></thead>
+    <tbody>{% for it in items %}{% set stl = STATUS.get(it.status, (it.status, 'slate')) %}
+      <tr>
+        <td class="text-nowrap" style="font-size:.8rem">{{ it.received|short_date if it.received }}</td>
+        <td style="font-size:.78rem">{{ it.from_domain }}{% if it.via %}<div class="muted" style="font-size:.68rem">forwarded by you</div>{% endif %}</td>
+        <td style="font-size:.8rem;max-width:380px"><div class="text-truncate" title="{{ it.subject }}">{{ it.subject or '(no subject)' }}</div>
+          {% if it.attachment %}<div class="muted text-truncate" style="font-size:.72rem"><i class="bi bi-paperclip"></i>{{ it.attachment }}
+            {% if it.kind and it.kind != 'other' %} · {{ {'statement': 'statement', 'contract_note': 'contract note', 'depository': 'CDSL / NSDL statement'}.get(it.kind, it.kind) }}{% endif %}</div>{% endif %}</td>
+        <td style="font-size:.78rem"><span class="chip tone-{{ stl[1] }}">{{ stl[0] }}</span>
+          {% if it.note %}<div class="muted" style="font-size:.7rem;max-width:300px">{{ it.note }}</div>{% endif %}
+          {% if it.result %}<div style="font-size:.7rem;max-width:300px;color:var(--amount-in)">{{ it.result }}</div>{% endif %}
+          {% if it.status == 'rejected' and it.auth_note %}<div class="muted" style="font-size:.7rem">{{ it.auth_note }}</div>{% endif %}</td>
+        <td class="text-end text-nowrap">
+          {% if it.status == 'review' and it.blob %}
+            <form method="post" action="{{ url_for('mail_review', iid=it.id) }}" class="d-inline"><button class="btn btn-sm btn-primary"><i class="bi bi-eye me-1"></i>Review</button></form>
+            <form method="post" action="{{ url_for('mail_item', iid=it.id) }}" class="d-inline"><input type="hidden" name="tab" value="{{ tab }}">
+              <button class="btn btn-sm btn-soft" name="action" value="retry" title="Read again (e.g. after saving a password or adding the account)"><i class="bi bi-arrow-repeat"></i></button>
+              <button class="btn btn-sm btn-soft text-danger" name="action" value="dismiss" title="Not needed — erase the stored copy"><i class="bi bi-x-lg"></i></button></form>
+          {% elif it.status == 'ignored' %}
+            <form method="post" action="{{ url_for('mail_item', iid=it.id) }}" class="d-inline"><input type="hidden" name="tab" value="{{ tab }}">
+              <button class="btn btn-sm btn-soft" name="action" value="allow" title="Add {{ it.from_domain }} to the senders to read"><i class="bi bi-plus-lg me-1"></i>Read this sender</button></form>
+          {% elif it.status == 'alert' and it.blob %}
+            <button class="btn btn-sm btn-soft" onclick="showAlert({{ it.id }}, this)"><i class="bi bi-card-text"></i></button>
+          {% endif %}
+        </td></tr>
+      {% if it.status == 'alert' %}<tr class="d-none" id="al-{{ it.id }}"><td colspan="5"><pre class="mb-0" style="white-space:pre-wrap;font-size:.74rem;max-height:240px;overflow:auto"></pre></td></tr>{% endif %}
+    {% else %}<tr><td colspan="5"><div class="empty"><i class="bi bi-envelope-open"></i>{{ 'Nothing here yet.' if configured else 'Set up the mailbox above to start.' }}</div></td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% if items and tab in ('statements', 'ignored') %}
+<form method="post" action="{{ url_for('mail_forget') }}" class="text-end mt-2" onsubmit="return confirm('Clear the list of handled and ignored mails? Waiting files and alerts are kept.')">
+  <button class="btn btn-sm btn-link muted">Clear history</button></form>{% endif %}
+{% endblock %}
+{% block scripts %}
+<script>
+function showAlert(id, btn) {
+  const row = document.getElementById('al-' + id);
+  if (!row.classList.contains('d-none')) { row.classList.add('d-none'); return; }
+  fetch('/mail/' + id + '/text').then(r => r.json()).then(d => { row.querySelector('pre').textContent = d.text || '(empty)'; row.classList.remove('d-none'); });
+}
+</script>
+{% endblock %}

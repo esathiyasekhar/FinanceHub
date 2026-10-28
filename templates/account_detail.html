@@ -1,0 +1,161 @@
+{% extends "base.html" %}
+{% block title %}{{ a.name }} – Finance Hub{% endblock %}
+{% block page_title %}<a href="{{ url_for('accounts', tab=a.kind) }}" class="text-decoration-none muted fw-normal">{{ kind.label }}</a> <i class="bi bi-chevron-right muted" style="font-size:.8rem"></i> {{ a.name }}{% endblock %}
+
+{% block content %}
+{% set liab = a.kind in ('card', 'loan') %}
+<div class="hub-card mb-3 tone-{{ a.tone }}">
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <div class="kpi p-0 border-0" style="box-shadow:none"><div class="ico" style="width:52px;height:52px;font-size:1.4rem"><i class="bi {{ kind.icon }}"></i></div></div>
+    <div class="flex-grow-1 min-w-0">
+      <div class="d-flex align-items-center gap-2 flex-wrap"><h4 class="mb-0 fw-bold">{{ a.name }}</h4>
+        {% if a.status != 'active' %}<span class="chip tone-slate">Closed</span>{% endif %}
+        {% if a.entity %}<span class="chip tone-violet">{{ a.entity }}</span>{% endif %}</div>
+      <div class="muted" style="font-size:.82rem">{{ a.subtype or kind.label }} · {{ a.bank or '—' }}{% if a.last4 %} · ····{{ a.last4 }}{% endif %}{% if a.holder %} · {{ a.holder }}{% endif %}{% if a.ifsc %} · IFSC {{ a.ifsc }}{% endif %}</div>
+    </div>
+    <div class="text-end">
+      <div class="small-label">{{ 'Outstanding' if liab else ('Value' if a.kind in ('deposit','asset') else 'Balance') }}</div>
+      {% set v = a.outstanding if liab else a.balance %}
+      <div class="fw-bold num {{ 'amount-debit' if liab else '' }}" style="font-size:1.8rem;line-height:1.1">{{ v|inr if v is not none else '—' }}</div>
+      <div class="muted" style="font-size:.74rem">{% if a.as_of %}as on {{ a.as_of|short_date }} · {{ 'statement' if a.source == 'statement' else 'entered' }}{% else %}no balance yet{% endif %}</div>
+    </div>
+  </div>
+  <div class="d-flex flex-wrap gap-2 mt-3">
+    <button class="btn btn-sm btn-primary" data-balance="{{ a.id }}" data-name="{{ a.name }}" data-label="{{ 'Outstanding (₹)' if liab else 'Balance (₹)' }}"><i class="bi bi-pencil-square me-1"></i>Update {{ 'outstanding' if liab else 'balance' }}</button>
+    <button class="btn btn-sm btn-soft" data-edit='{{ a.form|tojson }}'><i class="bi bi-gear me-1"></i>Edit details</button>
+    <a class="btn btn-sm btn-soft" href="{{ url_for('transactions', account=a.name, start='2000-01-01', end='2099-12-31') }}"><i class="bi bi-list-ul me-1"></i>All transactions</a>
+    <a class="btn btn-sm btn-soft" href="{{ url_for('import_page') }}"><i class="bi bi-cloud-arrow-up me-1"></i>Add statement</a>
+    <form method="post" action="{{ url_for('account_status', acc_id=a.id) }}" class="ms-auto"><input type="hidden" name="next" value="{{ request.full_path }}">
+      <input type="hidden" name="action" value="{{ 'close' if a.status == 'active' else 'open' }}">
+      <button class="btn btn-sm btn-soft" {% if a.status == 'active' %}onclick="return confirm('Close {{ a.name }}? It stays in history and reports.')"{% endif %}><i class="bi bi-archive me-1"></i>{{ 'Close account' if a.status == 'active' else 'Re-open' }}</button></form>
+    {% if not a.stat.count and not txns %}<form method="post" action="{{ url_for('account_delete', acc_id=a.id) }}" onsubmit="return confirm('Delete {{ a.name }} permanently?')"><button class="btn btn-sm btn-soft text-danger"><i class="bi bi-trash"></i></button></form>{% endif %}
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    <div class="hub-card mb-3">
+      <div class="card-head"><h6><i class="bi bi-graph-up me-2 text-primary"></i>{{ 'Outstanding' if liab else 'Balance' }} over time</h6>
+        <span class="more muted">{{ points|length }} point{{ 's' if points|length != 1 }}</span></div>
+      {% if points|length > 1 %}<div style="height:220px"><canvas id="balChart"></canvas></div>
+      {% else %}<div class="empty"><i class="bi bi-graph-up"></i>Add statements or balance updates to see the trend.</div>{% endif %}
+    </div>
+    {% if monthly %}
+    <div class="hub-card mb-3">
+      <div class="card-head"><h6><i class="bi bi-bar-chart me-2 text-primary"></i>Money in and out by month</h6></div>
+      <div style="height:200px"><canvas id="flowChart"></canvas></div>
+    </div>
+    {% endif %}
+    <div class="hub-card">
+      <div class="card-head"><h6><i class="bi bi-receipt me-2 text-primary"></i>Latest transactions</h6>
+        <a class="more" href="{{ url_for('transactions', account=a.name, start='2000-01-01', end='2099-12-31') }}">All <i class="bi bi-arrow-right"></i></a></div>
+      {% if txns %}
+      <div class="table-responsive"><table class="table table-sm mb-0">
+        <thead><tr><th>Date</th><th>Description</th><th>Category</th><th class="text-end">Amount</th></tr></thead>
+        <tbody>{% for t in txns %}<tr><td class="text-nowrap">{{ t.date|short_date }}</td><td>{{ (t.display_name or t.description)[:60] }}</td>
+          <td class="muted" style="font-size:.78rem">{{ t.cat or '' }}</td>
+          <td class="text-end text-nowrap {{ 'amount-debit' if t.type == 'debit' else 'amount-credit' }}">{{ '−' if t.type == 'debit' else '+' }}{{ t.amount|inr }}</td></tr>{% endfor %}</tbody>
+      </table></div>
+      {% else %}<div class="empty"><i class="bi bi-inbox"></i>No transactions for this account yet.</div>{% endif %}
+    </div>
+  </div>
+
+  <div class="col-lg-4">
+    {% if a.kind == 'card' %}
+    <div class="hub-card mb-3 tone-coral">
+      <h6><i class="bi bi-credit-card-2-front me-2 t-tone"></i>Card</h6>
+      {% if a.util is not none %}
+      <div class="d-flex justify-content-between" style="font-size:.8rem"><span class="muted">Utilisation</span><b>{{ '%.0f'|format(a.util) }}%</b></div>
+      <div class="bar my-1 {{ 'tone-red' if a.util >= 75 else 'tone-amber' if a.util >= 30 else 'tone-green' }}"><span style="width:{{ [a.util,100]|min }}%"></span></div>
+      {% endif %}
+      <div class="list-row"><span class="muted">Credit limit</span><b class="ms-auto num">{{ a.limit|inr if a.limit else '—' }}</b></div>
+      <div class="list-row"><span class="muted">Available</span><b class="ms-auto num">{{ a.available|inr if a.available is not none else '—' }}</b></div>
+      <div class="list-row"><span class="muted">Statement day / due day</span><b class="ms-auto">{{ a.billing_day_eff or '—' }} / {{ a.due_day_eff or '—' }}</b></div>
+      {% if a.bill %}
+      <div class="list-row"><span class="muted">Last bill</span><b class="ms-auto num">{{ a.bill.due|inr }}</b></div>
+      <div class="list-row"><span class="muted">Due date</span><b class="ms-auto">{{ a.bill.due_date.strftime('%d %b %Y') if a.bill.due_date else '—' }}</b></div>
+      <div class="list-row"><span class="muted">Paid since statement</span><b class="ms-auto num">{{ a.bill.paid|inr }}</b></div>
+      <div class="list-row"><span class="muted">Status</span><span class="ms-auto chip {{ {'paid':'tone-green','due':'tone-amber','part':'tone-blue','overdue':'tone-red','check':'tone-amber'}[a.bill.status] }}">{{ {'paid':'Paid','due':'Due','part':'Part paid','overdue':'Overdue','check':'Not seen'}[a.bill.status] }}</span></div>
+      {% endif %}
+      {% if a.annual_fee %}<div class="list-row"><span class="muted">Annual fee</span><b class="ms-auto num">{{ a.annual_fee|inr }}</b></div>{% endif %}
+      {% if a.reward_note %}<div class="soft-box mt-2" style="font-size:.78rem"><i class="bi bi-stars me-1 text-warning"></i>{{ a.reward_note }}</div>{% endif %}
+      {% if a.stat.points %}<div class="muted mt-2" style="font-size:.76rem">Reward points this FY: <b>{{ '%g'|format(a.stat.points) }}</b></div>{% endif %}
+    </div>
+    {% endif %}
+
+    {% if a.linked %}
+    <div class="hub-card mb-3 tone-violet">
+      <h6><i class="bi bi-calendar2-check me-2 t-tone"></i>{{ 'Loan schedule' if a.kind == 'loan' else 'EMIs on this card' }}</h6>
+      {% for l in a.linked %}
+      <div class="mb-2 pb-2" style="border-bottom:1px solid var(--border)">
+        <div class="d-flex"><b style="font-size:.85rem">{{ l.name }}</b><span class="ms-auto chip {{ 'tone-amber' if l.status == 'active' else 'tone-green' }}">{{ l.status }}</span></div>
+        <div class="muted" style="font-size:.76rem">{{ l.emi_amount|inr }}{{ '' if l.bullet else '/mo' }} · {{ l.emis_paid }}/{{ l.total_emis }} · {{ ('%g'|format(l.interest_rate) ~ '%') if l.interest_rate else '' }}</div>
+        {% if l.total_emis and not l.bullet %}<div class="bar mt-1"><span style="width:{{ l.progress }}%"></span></div>{% endif %}
+        <div class="d-flex mt-1" style="font-size:.76rem"><span class="muted">Outstanding</span><b class="ms-auto num amount-debit">{{ l.outstanding_now|inr }}</b></div>
+        {% if l.next_due %}<div class="d-flex" style="font-size:.76rem"><span class="muted">{{ 'Due' if l.bullet else 'Next EMI' }}</span><b class="ms-auto">{{ l.next_due.strftime('%d %b %Y') }}</b></div>{% endif %}
+      </div>
+      {% endfor %}
+      <a href="{{ url_for('tools_page') }}#prepay" class="small"><i class="bi bi-calculator me-1"></i>What if I prepay?</a>
+    </div>
+    {% endif %}
+
+    {% if a.kind == 'deposit' %}
+    <div class="hub-card mb-3 tone-indigo">
+      <h6><i class="bi bi-safe2 me-2 t-tone"></i>Deposit</h6>
+      <div class="list-row"><span class="muted">Invested</span><b class="ms-auto num">{{ a.principal|inr if a.principal else '—' }}</b></div>
+      <div class="list-row"><span class="muted">Rate</span><b class="ms-auto">{{ ('%g'|format(a.rate) ~ '% p.a.') if a.rate else '—' }}</b></div>
+      <div class="list-row"><span class="muted">Opened</span><b class="ms-auto">{{ a.start_date|short_date if a.start_date else '—' }}</b></div>
+      <div class="list-row"><span class="muted">Matures</span><b class="ms-auto">{{ a.maturity.strftime('%d %b %Y') if a.maturity else '—' }}</b></div>
+      <div class="list-row"><span class="muted">At maturity</span><b class="ms-auto num">{% set mv = a.maturity_amount or a.maturity_est %}{{ mv|inr if mv else '—' }}</b></div>
+    </div>
+    {% endif %}
+
+    <div class="hub-card mb-3">
+      <h6><i class="bi bi-clock-history me-2 text-primary"></i>Balance history</h6>
+      {% for p in points[:12] %}
+      <div class="list-row" style="font-size:.8rem">
+        <span class="ri" style="width:28px;height:28px;--tone:{{ 'var(--teal)' if p.source == 'statement' else 'var(--amber)' }}"><i class="bi {{ 'bi-file-earmark-text' if p.source == 'statement' else 'bi-pencil' }}"></i></span>
+        <div class="min-w-0"><div>{{ p.as_of|short_date }}</div><div class="muted text-truncate" style="font-size:.7rem;max-width:180px">{{ p.note }}</div></div>
+        <b class="ms-auto num">{{ p.value|inr }}</b>
+        {% if p.source == 'manual' %}<form method="post" action="{{ url_for('balance_delete', bal_id=p.id) }}"><input type="hidden" name="next" value="{{ request.full_path }}"><button class="btn btn-sm btn-link text-danger p-0 ms-1" title="Remove"><i class="bi bi-x"></i></button></form>{% endif %}
+      </div>
+      {% else %}<div class="empty py-2">Nothing yet.</div>{% endfor %}
+    </div>
+
+    <div class="hub-card mb-3">
+      <h6><i class="bi bi-file-earmark-text me-2 text-primary"></i>Statements</h6>
+      {% for s in stmts %}
+      <div class="list-row" style="font-size:.8rem"><div class="min-w-0"><div class="text-truncate" style="max-width:230px" title="{{ s.file_name }}">{{ s.file_name }}</div>
+        <div class="muted" style="font-size:.7rem">{{ (s.period_to or s.statement_date)|short_date }} · {{ s.txn_imported }} txns</div></div>
+        <span class="ms-auto chip {{ 'tone-green' if s.check_status == 'OK' else 'tone-slate' }}">{{ s.check_status or 'n/a' }}</span></div>
+      {% else %}<div class="empty py-2">No statements yet.</div>{% endfor %}
+    </div>
+    {% if a.notes %}<div class="hub-card"><h6>Notes</h6><div style="font-size:.84rem;white-space:pre-wrap">{{ a.notes }}</div></div>{% endif %}
+  </div>
+</div>
+{% include '_account_form.html' %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const pts = {{ chart|safe }};
+  const el = document.getElementById('balChart');
+  if (el && pts.length > 1) {
+    new Chart(el, {type: 'line', data: {labels: pts.map(p => p.x), datasets: [{data: pts.map(p => p.y), borderColor: '#6366f1', tension: .3, fill: true,
+      backgroundColor: 'rgba(99,102,241,.12)', pointRadius: 3}]},
+      options: {maintainAspectRatio: false, plugins: {legend: {display: false}, tooltip: {callbacks: {label: c => HUB.inr(c.parsed.y)}}},
+        scales: {y: {ticks: {callback: v => HUB.inrShort(v)}}}}});
+  }
+  const fl = document.getElementById('flowChart');
+  if (fl) {
+    const m = {{ monthly|map('list')|list|tojson }};
+    new Chart(fl, {type: 'bar', data: {labels: m.map(r => r[0]), datasets: [
+      {label: 'In', data: m.map(r => r[2]), backgroundColor: '#14b8a6', borderRadius: 6},
+      {label: 'Out', data: m.map(r => r[1]), backgroundColor: '#f9735b', borderRadius: 6}]},
+      options: {maintainAspectRatio: false, plugins: {tooltip: {callbacks: {label: c => c.dataset.label + ' ' + HUB.inr(c.parsed.y)}}},
+        scales: {y: {ticks: {callback: v => HUB.inrShort(v)}}}}});
+  }
+})();
+</script>
+{% endblock %}

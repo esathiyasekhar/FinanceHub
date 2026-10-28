@@ -1,0 +1,87 @@
+{% extends "base.html" %}
+{% block title %}Transfers & links – Finance Hub{% endblock %}
+{% block page_title %}Transfers &amp; links{% endblock %}
+{% block report_menu %}
+<li><a class="dropdown-item" href="{{ url_for('report_transfers', fmt='xlsx') }}"><i class="bi bi-file-earmark-excel me-2"></i>Transfers — Excel</a></li>
+<li><a class="dropdown-item" href="{{ url_for('report_transfers', fmt='pdf') }}"><i class="bi bi-file-earmark-pdf me-2"></i>Transfers — PDF</a></li>
+{% endblock %}
+
+{% block content %}
+<div class="hub-card mb-3 tone-indigo">
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <div class="kpi p-0 border-0" style="box-shadow:none"><div class="ico"><i class="bi bi-link-45deg"></i></div></div>
+    <div class="flex-grow-1" style="font-size:.84rem">Money moving between <b>your own accounts</b> — a bank paying a card bill, savings funding a broker,
+      your company paying you — is matched here. Confirm a link and both sides become a transfer, so nothing is counted twice as
+      income or expense; company ↔ you links build the <a href="{{ url_for('director_page') }}">director’s account</a>.</div>
+    {% if added %}<span class="chip tone-violet">{{ added }} new suggestion{{ 's' if added != 1 }}</span>{% endif %}
+  </div>
+</div>
+
+<div class="pill-tabs mb-3">
+  <a href="{{ url_for('links_page', tab='suggested') }}" class="tone-violet {{ 'active' if tab == 'suggested' }}">Suggested<span class="n">{{ counts.get('suggested', 0) }}</span></a>
+  <a href="{{ url_for('links_page', tab='confirmed') }}" class="tone-teal {{ 'active' if tab == 'confirmed' }}">Confirmed<span class="n">{{ counts.get('confirmed', 0) }}</span></a>
+  <a href="{{ url_for('links_page', tab='unlinked') }}" class="tone-amber {{ 'active' if tab == 'unlinked' }}">Transfers without a link<span class="n">{{ unlinked|length }}</span></a>
+  <a href="{{ url_for('links_page', tab='flows') }}" class="tone-blue {{ 'active' if tab == 'flows' }}">Flows</a>
+  <a href="{{ url_for('links_page', tab='rejected') }}" class="tone-slate {{ 'active' if tab == 'rejected' }}">Rejected<span class="n">{{ counts.get('rejected', 0) }}</span></a>
+</div>
+
+{% macro side(acct, desc, amt, date) %}{% if acct %}<div class="fw-semibold" style="font-size:.84rem">{{ acct }}</div>
+  <div class="muted text-truncate" style="font-size:.72rem;max-width:280px" title="{{ desc }}">{{ date|short_date }} · {{ desc }}</div>{% endif %}{% endmacro %}
+
+{% if tab in ('suggested', 'confirmed', 'rejected') %}
+<form method="post" action="{{ url_for('link_confirm_many') }}" id="bulk">
+<div class="hub-card p-0" style="overflow:hidden">
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr>{% if tab == 'suggested' %}<th style="width:28px"><input type="checkbox" class="form-check-input" onclick="document.querySelectorAll('.lk').forEach(c=>c.checked=this.checked)"></th>{% endif %}
+      <th>Money out</th><th></th><th>Money in</th><th class="text-end">Amount</th><th>Kind</th><th>Why</th><th></th></tr></thead>
+    <tbody>
+    {% for r in rows %}
+      <tr>
+        {% if tab == 'suggested' %}<td><input type="checkbox" class="form-check-input lk" name="ids" value="{{ r.id }}" {{ 'checked' if r.score >= 10 }}></td>{% endif %}
+        <td>{% if r.out_id %}{{ side(r.o_acct, r.o_desc, r.o_amt, r.o_date) }}{% else %}<span class="chip tone-slate">{{ r.counter }}</span>{% endif %}</td>
+        <td class="muted"><i class="bi bi-arrow-right"></i></td>
+        <td>{% if r.in_id %}{{ side(r.i_acct, r.i_desc, r.i_amt, r.i_date) }}{% else %}<span class="chip tone-slate">{{ r.counter }}</span>
+          <div class="muted" style="font-size:.68rem">statement not in the Hub</div>{% endif %}</td>
+        <td class="text-end num fw-semibold">{{ r.amount|inr }}</td>
+        <td>{% if tab == 'suggested' %}<select name="kind_{{ r.id }}" class="form-select form-select-sm" style="min-width:190px">
+            {% for k, v in KINDS.items() %}<option value="{{ k }}" {{ 'selected' if k == r.kind }}>{{ v }}</option>{% endfor %}</select>
+          {% else %}<span class="chip tone-indigo">{{ r.label }}</span>{% endif %}</td>
+        <td class="muted" style="font-size:.74rem">{{ r.reason }}</td>
+        <td class="text-end text-nowrap">
+          {% if tab == 'suggested' %}<button class="btn btn-sm btn-soft" formaction="{{ url_for('link_confirm', lid=r.id) }}" name="kind" value="" onclick="this.value=this.closest('tr').querySelector('select').value" title="Confirm"><i class="bi bi-check2"></i></button>{% endif %}
+          <button class="btn btn-sm btn-soft text-danger" formaction="{{ url_for('link_reject', lid=r.id) }}" name="action" value="{{ 'delete' if tab == 'rejected' else 'reject' }}"
+                  title="{{ 'Forget' if tab == 'rejected' else ('Not a transfer' if tab == 'suggested' else 'Undo link') }}"><i class="bi bi-x-lg"></i></button>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="8"><div class="empty"><i class="bi bi-link"></i>{{ 'Nothing to confirm — add statements of more accounts to find their transfers.' if tab == 'suggested' else 'Nothing here.' }}</div></td></tr>
+    {% endfor %}
+    </tbody></table></div>
+</div>
+{% if tab == 'suggested' and rows %}<div class="d-flex mt-2"><button class="btn btn-primary btn-sm ms-auto"><i class="bi bi-check2-all me-1"></i>Confirm ticked</button></div>{% endif %}
+</form>
+
+{% elif tab == 'unlinked' %}
+<div class="hub-card p-0" style="overflow:hidden">
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Date</th><th>Account</th><th>Description</th><th>Category</th><th class="text-end">Amount</th><th></th></tr></thead>
+    <tbody>{% for t in unlinked %}
+      <tr><td>{{ t.date|short_date }}</td><td>{{ t.account }}</td><td class="text-truncate" style="max-width:320px">{{ t.display_name or t.description }}</td>
+        <td class="muted" style="font-size:.76rem">{{ t.cat }}</td>
+        <td class="text-end num {{ 'amount-debit' if t.type == 'debit' else 'amount-credit' }}">{{ '−' if t.type == 'debit' else '+' }}{{ t.amount|inr }}</td>
+        <td class="text-end"><a class="btn btn-sm btn-soft" href="{{ url_for('link_manual', txn=t.id) }}"><i class="bi bi-link-45deg me-1"></i>Link</a></td></tr>
+    {% else %}<tr><td colspan="6"><div class="empty"><i class="bi bi-check2-circle"></i>Every transfer has its other side.</div></td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+
+{% else %}
+<div class="hub-card">
+  <h6><i class="bi bi-diagram-3 me-2 text-primary"></i>Where money moved (confirmed links)</h6>
+  {% set mx = (flows|map(attribute=2)|max) if flows else 1 %}
+  {% for a, b, v in flows %}
+  <div class="mb-2"><div class="d-flex" style="font-size:.82rem"><span>{{ a }} <i class="bi bi-arrow-right mx-1 muted"></i> {{ b }}</span><b class="ms-auto num">{{ v|inr }}</b></div>
+    <div class="bar mt-1"><span style="width:{{ (100 * v / mx)|round(1) }}%"></span></div></div>
+  {% else %}<div class="empty"><i class="bi bi-diagram-3"></i>Confirm some links to see the flows.</div>{% endfor %}
+</div>
+{% endif %}
+{% endblock %}

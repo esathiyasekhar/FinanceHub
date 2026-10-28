@@ -1,0 +1,206 @@
+{# Shared add / edit account modal + update-balance modal.  Needs: KINDS, kinds, SUBTYPES, COLOURS, card_names, entities, people #}
+<div class="modal fade" id="accModal" tabindex="-1">
+  <div class="modal-dialog modal-lg modal-dialog-scrollable">
+    <div class="modal-content">
+      <form action="{{ url_for('account_save') }}" method="post" id="accForm">
+        <div class="modal-header">
+          <div class="d-flex align-items-center gap-2">
+            <span class="ri rounded-3 d-inline-flex align-items-center justify-content-center" id="accIcon" style="width:36px;height:36px"><i class="bi"></i></span>
+            <div><h5 class="modal-title mb-0" id="accTitle">Add account</h5><div class="muted" style="font-size:.76rem" id="accHint"></div></div>
+          </div>
+          <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+        </div>
+        <div class="modal-body">
+          <input type="hidden" name="id">
+          <input type="hidden" name="next" value="{{ request.full_path }}">
+          <div class="mb-3" id="kindPick">
+            <div class="small-label mb-1">What are you adding?</div>
+            <div class="pill-tabs">
+              {% for k in kinds %}{% set K = KINDS[k] %}
+              <a href="#" class="tone-{{ K.tone }}" data-kind="{{ k }}"><i class="bi {{ K.icon }}"></i>{{ K.label }}</a>
+              {% endfor %}
+            </div>
+          </div>
+          <input type="hidden" name="kind" value="bank">
+          <div class="row g-3">
+            <div class="col-md-6"><label class="form-label" data-lbl="name">Name *</label>
+              <input name="name" class="form-control" required maxlength="80"></div>
+            <div class="col-md-6" data-k="bank card loan emi deposit wallet asset"><label class="form-label">Type</label>
+              <select name="subtype" class="form-select"></select></div>
+            <div class="col-md-6" data-k="bank card loan emi deposit wallet"><label class="form-label" data-lbl="bank">Bank / institution</label>
+              <input name="bank" class="form-control" list="dlBanks"></div>
+            <div class="col-md-6" data-k="bank card loan deposit"><label class="form-label" data-lbl="card_no">Account number</label>
+              <input name="card_no" class="form-control" placeholder="full number or just the last 4 digits"></div>
+            <div class="col-md-6" data-k="emi"><label class="form-label">Billed on card / account</label>
+              <select name="card" class="form-select"><option value="">— not on a card —</option>
+                {% for n in card_names %}<option>{{ n }}</option>{% endfor %}</select></div>
+            <div class="col-md-6" data-k="emi"><label class="form-label">Purchase / purpose</label>
+              <input name="purchase_desc" class="form-control" placeholder="e.g. iPhone 16, Laptop"></div>
+            <div class="col-md-4" data-k="bank"><label class="form-label">IFSC</label><input name="ifsc" class="form-control"></div>
+            <div class="col-md-4" data-k="bank card deposit loan"><label class="form-label">Holder</label>
+              <input name="holder" class="form-control" list="dlPeople"></div>
+            <div class="col-md-4" data-k="bank card loan emi deposit wallet asset"><label class="form-label">Book</label>
+              <select name="entity" class="form-select"><option value="">—</option>{% for e in entities %}<option>{{ e }}</option>{% endfor %}</select></div>
+            <div class="col-md-4" data-k="broker"><label class="form-label">Client ID</label><input name="client_id" class="form-control"></div>
+            <div class="col-md-4" data-k="broker"><label class="form-label">Demat (DP / BO) ID</label><input name="demat_id" class="form-control"></div>
+
+            <div class="col-md-4" data-k="card"><label class="form-label">Credit limit (₹)</label><input name="credit_limit" type="number" step="1" class="form-control"></div>
+            <div class="col-md-4" data-k="card"><label class="form-label">Statement (billing) day</label><input name="billing_day" type="number" min="1" max="31" class="form-control" placeholder="from statements if blank"></div>
+            <div class="col-md-4" data-k="card"><label class="form-label">Payment due day</label><input name="due_day" type="number" min="1" max="31" class="form-control" placeholder="from statements if blank"></div>
+            <div class="col-md-4" data-k="card"><label class="form-label">Annual fee (₹)</label><input name="annual_fee" type="number" step="1" class="form-control"></div>
+            <div class="col-md-8" data-k="card"><label class="form-label">Rewards (how this card earns)</label><input name="reward_note" class="form-control" placeholder="e.g. 5% on Amazon, 1% elsewhere; lounge access"></div>
+
+            <div class="col-md-4" data-k="loan deposit emi"><label class="form-label" data-lbl="principal">Amount</label><input name="principal" type="number" step="0.01" class="form-control"></div>
+            <div class="col-md-4" data-k="loan deposit emi"><label class="form-label">Interest rate (% p.a.)</label><input name="rate" type="number" step="0.01" class="form-control"></div>
+            <div class="col-md-4" data-k="loan deposit emi"><label class="form-label" data-lbl="start_date">Start date</label><input name="start_date" type="date" class="form-control"></div>
+            <div class="col-md-4" data-k="loan deposit emi"><label class="form-label" data-lbl="maturity_date">Maturity date</label><input name="maturity_date" type="date" class="form-control"></div>
+            <div class="col-md-4" data-k="deposit"><label class="form-label">Maturity amount (₹)</label><input name="maturity_amount" type="number" step="0.01" class="form-control" placeholder="estimated if blank"></div>
+
+            <div class="col-md-4" data-k="loan emi"><label class="form-label">EMI (₹ / month)</label><input name="emi_amount" type="number" step="0.01" class="form-control"></div>
+            <div class="col-md-4" data-k="loan emi"><label class="form-label">Total EMIs</label><input name="total_emis" type="number" min="0" class="form-control"></div>
+            <div class="col-md-4" data-k="loan emi"><label class="form-label">EMIs paid</label><input name="emis_paid" type="number" min="0" class="form-control"></div>
+            <div class="col-md-4" data-k="loan emi"><label class="form-label">First EMI date</label><input name="first_emi_date" type="date" class="form-control"></div>
+            <div class="col-md-4" data-k="loan emi"><label class="form-label">Outstanding now (₹)</label><input name="outstanding" type="number" step="0.01" class="form-control" placeholder="EMI × remaining if blank"></div>
+            <div class="col-md-4 d-flex align-items-end" data-k="loan"><div class="form-check mb-2">
+              <input class="form-check-input" type="checkbox" name="bullet" value="1" id="fBullet">
+              <label class="form-check-label" for="fBullet" style="font-size:.84rem">Bullet repayment (one payment at the end, e.g. gold loan)</label></div></div>
+
+            <div class="col-md-4" data-k="bank deposit wallet asset"><label class="form-label" data-lbl="balance">Current balance (₹)</label>
+              <input name="balance" type="number" step="0.01" class="form-control" placeholder="leave blank to use statements"></div>
+            <div class="col-md-4" data-k="bank deposit wallet asset"><label class="form-label">As on</label>
+              <input name="balance_date" type="date" class="form-control" value="{{ today.isoformat() if today is defined else '' }}"></div>
+            <div class="col-md-4" data-k="bank card"><label class="form-label">Colour</label>
+              <div class="d-flex gap-1 flex-wrap pt-1" id="colourPick">
+                {% for c in COLOURS %}<label class="tone-{{ c }}" style="cursor:pointer"><input type="radio" name="colour" value="{{ c }}" class="d-none">
+                  <span class="d-inline-block rounded-circle" style="width:22px;height:22px;background:var(--tone);border:2px solid transparent"></span></label>{% endfor %}
+              </div></div>
+            <div class="col-12"><label class="form-label">Notes</label><textarea name="notes" rows="2" class="form-control"></textarea></div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <span class="muted me-auto" style="font-size:.74rem" id="accFoot"></span>
+          <button type="button" class="btn btn-soft btn-sm" data-bs-dismiss="modal">Cancel</button>
+          <button type="submit" class="btn btn-primary btn-sm px-3" id="accSubmit">Save</button>
+        </div>
+      </form>
+    </div>
+  </div>
+</div>
+<datalist id="dlBanks">{% for n in ['State Bank of India','HDFC Bank','ICICI Bank','Axis Bank','Kotak Mahindra Bank','Bank of Baroda','Bank of India','Central Bank of India','Canara Bank','Punjab National Bank','Union Bank of India','Indian Bank','IndusInd Bank','IDFC First Bank','Yes Bank','South Indian Bank','Federal Bank','Standard Chartered','HSBC','AU Small Finance Bank','SBI Card','American Express','India Post','EPFO','Paytm','PhonePe','Amazon Pay','Bajaj Finance','Muthoot Finance','Manappuram Finance','LIC'] %}<option>{{ n }}</option>{% endfor %}</datalist>
+<datalist id="dlPeople">{% for p in people %}<option>{{ p }}</option>{% endfor %}</datalist>
+
+<div class="modal fade" id="balModal" tabindex="-1">
+  <div class="modal-dialog modal-sm">
+    <div class="modal-content">
+      <form method="post" id="balForm">
+        <input type="hidden" name="next" value="{{ request.full_path }}">
+        <div class="modal-header"><h6 class="modal-title" id="balTitle">Update balance</h6><button type="button" class="btn-close" data-bs-dismiss="modal"></button></div>
+        <div class="modal-body">
+          <label class="form-label" id="balLbl">Balance (₹)</label><input name="balance" type="number" step="0.01" class="form-control mb-2" required>
+          <label class="form-label">As on</label><input name="as_of" type="date" class="form-control mb-2" value="{{ today.isoformat() if today is defined else '' }}">
+          <label class="form-label">Note</label><input name="note" class="form-control" placeholder="optional">
+          <div class="muted mt-2" style="font-size:.74rem">The newer of this entry and the latest statement is used.</div>
+        </div>
+        <div class="modal-footer"><button class="btn btn-primary btn-sm w-100">Save balance</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+
+<script>
+(function () {
+  const KINDS = {{ KINDS|tojson }};
+  const SUB = {{ SUBTYPES|tojson }};
+  const LABELS = {
+    name: {bank: 'Account name *', card: 'Card name *', loan: 'Loan name *', emi: 'EMI name *', deposit: 'Name *', broker: 'Broker name *', wallet: 'Wallet name *', asset: 'Asset name *'},
+    bank: {loan: 'Lender', emi: 'Lender / bank', wallet: 'Provider', card: 'Issuer (bank)'},
+    card_no: {card: 'Card number', loan: 'Loan account number', deposit: 'Account / certificate number'},
+    principal: {loan: 'Sanctioned amount (₹)', deposit: 'Amount invested (₹)', emi: 'Purchase amount (₹)'},
+    start_date: {loan: 'Disbursed on', deposit: 'Opened on', emi: 'Purchased on'},
+    maturity_date: {loan: 'Loan ends on', deposit: 'Matures on', emi: 'Last EMI date'},
+    balance: {deposit: 'Current value (₹)', asset: 'Current value (₹)', wallet: 'Balance (₹)', bank: 'Current balance (₹)'},
+  };
+  const HINT = {
+    bank: 'Savings, current or salary accounts. Balances update from statements; you can also type one.',
+    card: 'Billing and due days come from statements when blank — they power the dues calendar and “best card today”.',
+    loan: 'Home, personal, gold or vehicle loans. Statements keep the outstanding up to date.',
+    emi: 'EMIs on cards or from EMI letters. They are counted in your loans and dues.',
+    deposit: 'FDs, RDs, PPF, EPF, NPS, bonds — add the value now and update it when you get a statement.',
+    broker: 'Trades and holdings come from the broker’s contract notes (Investments).',
+    wallet: 'Cash in hand, UPI wallets, prepaid and forex cards.',
+    asset: 'Property, gold, vehicles or money you have lent — counted in net worth.',
+  };
+  const form = document.getElementById('accForm');
+  const modal = () => bootstrap.Modal.getOrCreateInstance(document.getElementById('accModal'));
+  function setKind(k, keepSub) {
+    form.kind.value = k;
+    const K = KINDS[k];
+    document.querySelectorAll('#kindPick a').forEach(a => a.classList.toggle('active', a.dataset.kind === k));
+    form.querySelectorAll('[data-k]').forEach(el => {
+      const on = el.dataset.k.split(' ').includes(k);
+      el.classList.toggle('d-none', !on);
+      el.querySelectorAll('input,select,textarea').forEach(i => i.disabled = !on);
+    });
+    form.querySelectorAll('[data-lbl]').forEach(l => {
+      const m = LABELS[l.dataset.lbl] || {};
+      l.textContent = m[k] || l.dataset.default || l.textContent;
+    });
+    const sel = form.subtype, cur = keepSub ? sel.value : '';
+    sel.innerHTML = (SUB[k] || []).map(s => `<option${s === cur ? ' selected' : ''}>${s}</option>`).join('');
+    const ic = document.getElementById('accIcon');
+    ic.className = 'ri rounded-3 d-inline-flex align-items-center justify-content-center tone-' + K.tone + ' bg-tone-soft';
+    ic.innerHTML = `<i class="bi ${K.icon}"></i>`;
+    document.getElementById('accHint').textContent = HINT[k] || '';
+  }
+  form.querySelectorAll('[data-lbl]').forEach(l => l.dataset.default = l.textContent);
+  document.querySelectorAll('#kindPick a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); setKind(a.dataset.kind); }));
+  document.querySelectorAll('#colourPick input').forEach(r => r.addEventListener('change', paintColours));
+  function paintColours() {
+    document.querySelectorAll('#colourPick label').forEach(l => {
+      const i = l.querySelector('input'); l.querySelector('span').style.borderColor = i.checked ? 'var(--text)' : 'transparent'; });
+  }
+  window.openAccount = function (kind, data) {
+    form.reset();
+    form.id.value = '';
+    const edit = !!(data && data.id);
+    document.getElementById('kindPick').classList.toggle('d-none', edit);
+    setKind(kind || 'bank');
+    if (data) {
+      Object.entries(data).forEach(([k, v]) => {
+        const el = form.elements[k];
+        if (!el || v === null || v === undefined) return;
+        if (el instanceof RadioNodeList) { [...el].forEach(r => r.checked = r.value === String(v)); }
+        else if (el.type === 'checkbox') el.checked = !!v;
+        else if (el.type === 'date') el.value = /^\d{4}-\d{2}-\d{2}$/.test(String(v)) ? v : '';
+        else el.value = v;
+      });
+      if (data.subtype && ![...form.subtype.options].some(o => o.value === data.subtype)) form.subtype.add(new Option(data.subtype, data.subtype, true, true));
+      if (data.card && ![...form.card.options].some(o => o.value === data.card)) form.card.add(new Option(data.card, data.card, true, true));
+    }
+    const TITLE = {bank: 'bank account', card: 'credit card', loan: 'loan', emi: 'EMI', deposit: 'deposit / scheme',
+                   broker: 'broker account', wallet: 'wallet / cash', asset: 'asset'};
+    document.getElementById('accTitle').textContent = (edit ? 'Edit ' : 'Add ') + TITLE[kind || 'bank'];
+    document.getElementById('accSubmit').textContent = edit ? 'Save changes' : 'Add';
+    document.getElementById('accFoot').textContent = edit && kind !== 'emi' && kind !== 'broker' ? 'Renaming also updates its transactions, loans and statements.' : '';
+    paintColours();
+    modal().show();
+  };
+  window.openBalance = function (id, name, label) {
+    const f = document.getElementById('balForm');
+    f.action = '{{ url_for("account_balance", acc_id=0) }}'.replace('/0/', '/' + id + '/');
+    document.getElementById('balTitle').textContent = name;
+    document.getElementById('balLbl').textContent = label || 'Balance (₹)';
+    f.balance.value = '';
+    bootstrap.Modal.getOrCreateInstance(document.getElementById('balModal')).show();
+    setTimeout(() => f.balance.focus(), 300);
+  };
+  document.addEventListener('click', e => {
+    const b = e.target.closest('[data-edit]');
+    if (b) { e.preventDefault(); const d = JSON.parse(b.dataset.edit); openAccount(d.kind, d); }
+    const a = e.target.closest('[data-add]');
+    if (a) { e.preventDefault(); openAccount(a.dataset.add); }
+    const u = e.target.closest('[data-balance]');
+    if (u) { e.preventDefault(); openBalance(u.dataset.balance, u.dataset.name, u.dataset.label); }
+  });
+})();
+</script>

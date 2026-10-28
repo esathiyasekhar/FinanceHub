@@ -1,0 +1,344 @@
+{% extends "base.html" %}
+{% block title %}Add Statements – Finance Hub{% endblock %}
+{% block page_title %}Add Statements{% endblock %}
+
+{% block content %}
+<style>
+  .pv-card{border:1px solid var(--border);border-radius:12px;padding:14px 16px;margin-bottom:12px;background:var(--tint)}
+  .pv-card.sel{border-color:rgba(59,130,246,.55);background:rgba(59,130,246,.05)}
+  .pv-head{display:flex;gap:10px;align-items:flex-start}
+  .pv-title{font-weight:600;font-size:.9rem}
+  .pv-sub{font-size:.75rem;color:var(--muted)}
+  .pv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px;margin:10px 0}
+  .pv-grid div{background:var(--tint);border-radius:8px;padding:6px 9px}
+  .pv-grid .k{font-size:.66rem;color:var(--muted);text-transform:uppercase;letter-spacing:.4px}
+  .pv-grid .v{font-size:.85rem;font-weight:600}
+  .pv-list{font-size:.78rem;margin:4px 0}
+  .pv-list li{margin-bottom:2px}
+  .pv-table{font-size:.74rem;max-height:320px;overflow:auto;border-radius:8px;border:1px solid var(--border)}
+  .pv-table table{margin:0}
+  .pv-table td,.pv-table th{padding:3px 7px;white-space:nowrap}
+  .pv-table tr.skip td{opacity:.45}
+  .badge-ok{background:rgba(34,197,94,.18);color:#4ade80}
+  .badge-bad{background:rgba(239,68,68,.18);color:#f87171}
+  .badge-na{background:rgba(148,163,184,.18);color:var(--text-soft)}
+  .badge-dup{background:rgba(245,158,11,.18);color:#fbbf24}
+</style>
+
+<div class="row g-3">
+  <div class="col-xl-8">
+    <!-- Step 1: add files -->
+    <div class="chart-card mb-3">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h6 class="mb-0"><i class="bi bi-cloud-upload me-2 text-primary"></i>1 · Add statements</h6>
+        <span class="text-muted" style="font-size:.72rem">PDF (any bank) · CSV · XLSX · XLS</span>
+      </div>
+      <div id="dropzone" class="mb-2">
+        <i class="bi bi-file-earmark-arrow-up" style="font-size:2rem;color:var(--blue)"></i>
+        <p class="mt-1 mb-0" style="font-size:.85rem;color:var(--muted)">Drop statement files here, or click to choose</p>
+        <input type="file" id="fileInput" multiple accept=".pdf,.xlsx,.xls,.csv" style="display:none">
+      </div>
+      <div id="fileList"></div>
+      <div id="previewSection" class="d-none mt-2">
+        <button id="previewBtn" class="btn btn-primary px-4"><i class="bi bi-search me-2"></i>Read &amp; preview <span id="fileCount">0</span> file(s)</button>
+        <button class="btn btn-outline-secondary ms-2" onclick="clearQueue()"><i class="bi bi-x-lg me-1"></i>Clear</button>
+      </div>
+      <div class="mt-2" style="font-size:.72rem;color:var(--muted)">
+        <i class="bi bi-key me-1"></i>Protected PDFs are opened with the passwords saved on the
+        <a href="{{ url_for('passwords_page') }}" class="text-primary">Passwords</a> page; you are asked only if none works.
+        Nothing is saved until you click <strong>Add</strong>.
+      </div>
+    </div>
+
+    <!-- Step 2: preview -->
+    <div id="previewCard" class="chart-card mb-3 d-none">
+      <div class="d-flex align-items-center justify-content-between mb-2 flex-wrap gap-2">
+        <h6 class="mb-0"><i class="bi bi-eye me-2 text-info"></i>2 · Check the preview</h6>
+        <div>
+          <button id="importBtn" class="btn btn-success btn-sm px-3" disabled><i class="bi bi-plus-circle me-1"></i>Add <span id="selCount">0</span> selected</button>
+        </div>
+      </div>
+      <div id="previews"></div>
+    </div>
+
+    <div id="results"></div>
+  </div>
+
+  <!-- Right: history + tools -->
+  <div class="col-xl-4">
+    <div class="chart-card mb-3">
+      <h6 class="mb-2"><i class="bi bi-clock-history me-2 text-primary"></i>Statements added</h6>
+      {% if statements %}
+      <div style="max-height:520px;overflow:auto">
+        {% for s in statements %}
+        <div class="d-flex align-items-start gap-2 p-2 rounded mb-1" style="background:var(--tint)">
+          <span class="badge {% if s['check_status']=='OK' %}badge-ok{% elif s['check_status']=='MISMATCH' %}badge-bad{% else %}badge-na{% endif %} mt-1" style="font-size:.62rem">{{ s['check_status'] or 'n/a' }}</span>
+          <div class="flex-grow-1" style="min-width:0">
+            <div style="font-size:.78rem;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="{{ s['file_name'] }}">{{ s['document'] or s['file_name'] }}</div>
+            <div style="font-size:.68rem;color:var(--muted)">{{ s['period_from']|short_date }} – {{ s['period_to']|short_date }} · {{ s['txn_imported'] }} of {{ s['txn_count'] }} rows · {{ (s['imported_at'] or '')[:10] }}</div>
+          </div>
+          <form action="{{ url_for('delete_statement', sid=s['id']) }}" method="post"
+                onsubmit="return confirm('Remove this statement and the transactions it imported?')">
+            <button class="btn btn-sm btn-outline-danger py-0 px-1" title="Remove statement" style="font-size:.7rem"><i class="bi bi-x"></i></button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="text-muted" style="font-size:.8rem">No statements imported yet.</div>
+      {% endif %}
+    </div>
+
+    <div class="chart-card mb-3">
+      <h6 class="mb-2"><i class="bi bi-check-circle me-2 text-success"></i>Read by Statement Reader {{ engine_version }}</h6>
+      <div style="font-size:.76rem;color:var(--muted)">
+        <table class="table table-dark table-sm mb-2" style="font-size:.74rem">
+          {% for bank, docs, _ in supported %}<tr><td style="white-space:nowrap">{{ bank }}</td><td>{{ docs }}</td></tr>{% endfor %}
+        </table>
+        Every statement with printed balances is checked: opening ± transactions = closing (cards: previous balance − payments + purchases = total due).
+        Other banks / cards are read with a generic reader, flagged "no dedicated reader" and not ticked unless they reconcile.
+        <details class="mt-1"><summary style="cursor:pointer">Adding a bank or credit card</summary>
+          Put a sample PDF in the statements folder and run <code>python statement_reader\tools\test_statement.py "file.pdf" PASSWORD --text</code>
+          in the Hub folder — it shows which reader would be used and the page text. A new reader is then added following
+          <code>statement_reader\parsers\README.md</code> (in the Statement Reader app, then copied to the Hub) and must reconcile before use.
+        </details>
+      </div>
+    </div>
+
+    <div class="chart-card" style="border-color:rgba(239,68,68,.3)">
+      <h6 class="mb-3" style="color:#f87171"><i class="bi bi-exclamation-triangle me-2"></i>Danger Zone</h6>
+      <div class="d-flex flex-column gap-2">
+        <form action="{{ url_for('import_reset') }}" method="post"
+              onsubmit="return confirm('Reset & Reload will DELETE ALL transactions and statement history, then import every file in the statements folder. Statements that need an unsaved password or do not reconcile are skipped. Continue?')">
+          <button type="submit" class="btn btn-outline-warning btn-sm w-100">
+            <i class="bi bi-arrow-clockwise me-2"></i>Reset &amp; Reload from Folder
+          </button>
+          <div style="font-size:.66rem;color:var(--muted);margin-top:3px">{{ stmt_folders|join(' · ') if stmt_folders else 'No statements folder with files found' }}</div>
+        </form>
+        <form action="{{ url_for('import_clear_fy') }}" method="post" class="d-flex gap-1"
+              onsubmit="const o=this.fy.selectedOptions[0]; this.fy_start.value=o.dataset.s; this.fy_end.value=o.dataset.e; return confirm('Permanently delete all transactions of ' + o.text + '? Statements of that year can then be imported again.')">
+          <select name="fy" class="form-select form-select-sm" style="width:auto">
+            {% for lbl, s, e in fy_opts %}<option data-s="{{ s }}" data-e="{{ e }}">{{ lbl }}</option>{% endfor %}</select>
+          <input type="hidden" name="fy_start"><input type="hidden" name="fy_end">
+          <button type="submit" class="btn btn-outline-danger btn-sm flex-grow-1"><i class="bi bi-calendar-x me-2"></i>Clear this year's data</button>
+        </form>
+        <button class="btn btn-danger btn-sm w-100" onclick="confirmReset()"><i class="bi bi-trash3-fill me-2"></i>Delete All Transactions</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Reset confirm modal -->
+<div class="modal fade" id="resetModal" tabindex="-1">
+  <div class="modal-dialog modal-dialog-centered">
+    <div class="modal-content" style="background:var(--navy2);border-color:var(--border)">
+      <div class="modal-header border-0">
+        <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle-fill me-2"></i>Delete All Transactions?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p class="text-muted mb-2">This permanently deletes <strong>every transaction</strong> and the statement history.</p>
+        <p class="text-muted" style="font-size:.85rem">Accounts, EMIs/loans and passwords are kept.</p>
+      </div>
+      <div class="modal-footer border-0">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+        <button type="button" class="btn btn-danger" onclick="doReset()"><i class="bi bi-trash3-fill me-2"></i>Yes, Delete Everything</button>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const inr = v => '₹' + Number(v || 0).toLocaleString('en-IN', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const setText = (id, v) => { const e = document.getElementById(id); if (e) e.textContent = v; };
+const dmy = s => { if (!s) return '—'; const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s); return m ? `${m[3]}-${m[2]}-${m[1]}` : s; };
+
+// ── queue ──────────────────────────────────────────────────────────────────
+const dropzone = document.getElementById('dropzone'), fileInput = document.getElementById('fileInput');
+dropzone.addEventListener('click', () => fileInput.click());
+dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
+dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
+dropzone.addEventListener('drop', e => { e.preventDefault(); dropzone.classList.remove('drag-over'); addFiles([...e.dataTransfer.files]); });
+fileInput.addEventListener('change', function () { addFiles([...this.files]); this.value = ''; });
+
+let queue = [];
+function addFiles(files) {
+  const ok = ['pdf', 'xlsx', 'xls', 'csv'];
+  queue = [...queue, ...files.filter(f => ok.includes(f.name.split('.').pop().toLowerCase()))];
+  renderQueue();
+}
+function clearQueue() { queue = []; renderQueue(); }
+function removeFile(i) { queue.splice(i, 1); renderQueue(); }
+function renderQueue() {
+  document.getElementById('previewSection').classList.toggle('d-none', !queue.length);
+  setText('fileCount', queue.length);
+  document.getElementById('fileList').innerHTML = queue.map((f, i) => `
+    <div class="d-flex align-items-center gap-2 p-2 rounded mb-1" style="background:var(--tint)">
+      <i class="bi bi-file-earmark-text" style="font-size:1rem"></i>
+      <span style="font-size:.8rem;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(f.name)}</span>
+      <span class="text-muted" style="font-size:.7rem">${(f.size / 1024).toFixed(0)} KB</span>
+      <button class="btn btn-sm btn-outline-danger py-0 px-2" onclick="removeFile(${i})" style="font-size:.7rem">×</button>
+    </div>`).join('');
+}
+
+// ── preview ────────────────────────────────────────────────────────────────
+let previews = {{ (pending or [])|tojson }};   // public previews from the server (1.5: + statements from the mail inbox)
+let selected = new Set(previews.filter(p => p.default_selected).map(p => p.token));   // tokens ticked for import
+
+document.getElementById('previewBtn').addEventListener('click', async () => {
+  if (!queue.length) return;
+  const btn = document.getElementById('previewBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-2"></span>Reading statements…';
+  const fd = new FormData(); queue.forEach(f => fd.append('files', f));
+  let data = null, err = '';
+  try {
+    const res = await fetch('/import/preview', { method: 'POST', body: fd });
+    if (!res.ok) throw new Error('server error ' + res.status + ' — see the Finance Hub window for details');
+    data = await res.json();
+  } catch (e) { err = e.message; }
+  // restore the button first (it holds the #fileCount label used by renderQueue)
+  btn.disabled = false; btn.innerHTML = '<i class="bi bi-search me-2"></i>Read &amp; preview <span id="fileCount">0</span> file(s)';
+  if (err) {
+    document.getElementById('results').innerHTML = `<div class="alert alert-danger py-2 px-3" style="font-size:.82rem">Preview failed: ${esc(err)}</div>`;
+    return;
+  }
+  data.forEach(p => { previews.push(p); if (p.default_selected) selected.add(p.token); });
+  queue = []; renderQueue(); renderPreviews();
+});
+
+function checkBadge(p) {
+  if (p.check_status === 'OK') return '<span class="badge badge-ok">Balances reconcile ✓</span>';
+  if (p.check_status === 'MISMATCH') return '<span class="badge badge-bad">Balances do NOT reconcile</span>';
+  return '<span class="badge badge-na">No balance check</span>';
+}
+
+function card(p) {
+  if (p.status === 'needs_password') return `
+    <div class="pv-card" id="pv-${p.token}">
+      <div class="pv-head"><i class="bi bi-lock-fill text-warning" style="font-size:1.2rem"></i>
+        <div class="flex-grow-1"><div class="pv-title">${esc(p.file)}</div>
+          <div class="pv-sub">${esc(p.msg || 'Password required')}</div>
+          <div class="d-flex gap-2 mt-2 flex-wrap align-items-center">
+            <input type="password" class="form-control form-control-sm" style="max-width:220px" id="pw-${p.token}" placeholder="PDF password"
+                   onkeydown="if(event.key==='Enter') tryPassword('${p.token}')">
+            <label style="font-size:.75rem" class="d-flex align-items-center gap-1"><input type="checkbox" id="save-${p.token}" checked> save on Passwords page</label>
+            <button class="btn btn-sm btn-warning" onclick="tryPassword('${p.token}')">Open</button>
+          </div></div></div></div>`;
+  if (p.status === 'error') return `
+    <div class="pv-card"><div class="pv-head"><i class="bi bi-x-circle-fill text-danger" style="font-size:1.2rem"></i>
+      <div><div class="pv-title">${esc(p.file)}</div><div class="pv-sub">${esc(p.msg)}</div></div></div></div>`;
+
+  const dup = p.duplicate_statement;
+  const sel = selected.has(p.token);
+  const c = p.counts || {};
+  const accts = (p.account_map || []).map(m =>
+    `<li>${esc(m.label)} → <strong>${esc(m.name)}</strong> ${m.existing ? `<span class="text-muted">(existing · matched by ${esc(m.how)})</span>` : '<span class="text-warning">(new account will be created)</span>'}</li>`).join('');
+  const loans = (p.loans || []).map(l => {
+    const tag = l.action === 'create' ? '<span class="badge bg-primary">new loan</span>'
+              : l.action === 'update' ? '<span class="badge bg-info text-dark">update</span>'
+              : '<span class="badge badge-na">no change</span>';
+    const prog = `${l.emis_paid}/${l.total_emis} paid` + (l.outstanding ? ` · outstanding ${inr(l.outstanding)}` : '');
+    const ch = (l.changes || []).length ? ` <span class="text-muted">(${esc(l.changes.join('; '))})</span>` : '';
+    return `<li>${tag} ${esc(l.description)} — EMI ${inr(l.emi_amount)} · ${prog}${ch}</li>`;
+  }).join('');
+  const rows = (p.txns || []).map(t => `
+    <tr class="${t.skip ? 'skip' : ''}"><td>${dmy(t.date)}</td><td style="white-space:normal;min-width:220px">${esc(t.description)}</td>
+      <td class="text-end ${t.type === 'credit' ? 'text-success' : 'text-danger'}">${t.type === 'credit' ? '+' : ''}${inr(t.amount)}</td>
+      <td>${esc(t.category)}</td><td>${esc(t.account)}</td><td>${esc(t.cardholder)}</td><td class="text-muted">${esc(t.skip_reason)}</td></tr>`).join('');
+  const checks = (p.checks || []).filter(a => a.Check && a.Check !== 'OK').map(a => `<li class="text-danger">${esc(a.Account)}: ${esc(a.Check)}</li>`).join('');
+  const isCard = p.statement_type === 'credit_card';
+  const facts = [
+    ['Period', `${dmy(p.period_from)} – ${dmy(p.period_to)}`],
+    [isCard ? 'Total due' : (p.statement_type === 'consolidated' ? 'Loans outstanding' : 'Closing balance'),
+     inr(isCard || p.statement_type === 'consolidated' ? p.total_due : p.closing_balance)],
+    isCard ? ['Due date', dmy(p.due_date)] : ['Opening', inr(p.opening_balance)],
+    ['Rows in file', c.rows ?? 0], ['New for Hub', c.new ?? 0],
+    ['Debits / Credits', `${inr(c.debits)} / ${inr(c.credits)}`],
+  ].map(([k, v]) => `<div><div class="k">${k}</div><div class="v">${v}</div></div>`).join('');
+  return `
+    <div class="pv-card ${sel ? 'sel' : ''}" id="pv-${p.token}">
+      <div class="pv-head">
+        <input type="checkbox" class="form-check-input mt-1" ${sel ? 'checked' : ''} ${dup ? 'disabled' : ''} onchange="toggleSel('${p.token}', this.checked)">
+        <div class="flex-grow-1" style="min-width:0">
+          <div class="d-flex flex-wrap gap-2 align-items-center">
+            <span class="pv-title">${esc(p.document || p.file)}</span> ${checkBadge(p)}
+            ${dup ? `<span class="badge badge-dup">Already imported ${esc((dup.imported_at || '').slice(0, 10))}</span>` : ''}
+          </div>
+          <div class="pv-sub">${esc(p.file)} · ${esc(p.bank || '')} · read by ${esc(p.parser || '')}${p.password_label && p.password_label !== 'not protected' ? ' · opened with saved password “' + esc(p.password_label) + '”' : ''}${p.password_saved ? ' · password saved' : ''}</div>
+        </div>
+      </div>
+      <div class="pv-grid">${facts}</div>
+      ${(p.warnings || []).map(w => `<div class="text-warning" style="font-size:.76rem"><i class="bi bi-exclamation-triangle me-1"></i>${esc(w)}</div>`).join('')}
+      ${checks ? `<ul class="pv-list">${checks}</ul>` : ''}
+      <div style="font-size:.74rem;color:var(--muted);margin-top:6px">Accounts</div><ul class="pv-list">${accts}</ul>
+      ${loans ? `<div style="font-size:.74rem;color:var(--muted)">EMIs &amp; loans</div><ul class="pv-list">${loans}</ul>` : ''}
+      ${rows ? `<details><summary style="font-size:.76rem;cursor:pointer">Show ${c.rows} rows${c.already ? ` (${c.already} already in Hub, greyed)` : ''}</summary>
+        <div class="pv-table mt-2"><table class="table table-dark table-sm"><thead><tr><th>Date</th><th>Description</th><th class="text-end">Amount</th><th>Category</th><th>Account</th><th>Holder</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>
+        ${p.txns_truncated ? `<div class="text-muted" style="font-size:.7rem">+ ${p.txns_truncated} more rows</div>` : ''}</details>` : ''}
+    </div>`;
+}
+
+function renderPreviews() {
+  document.getElementById('previewCard').classList.toggle('d-none', !previews.length);
+  document.getElementById('previews').innerHTML = previews.map(card).join('');
+  setText('selCount', selected.size);
+  document.getElementById('importBtn').disabled = !selected.size;
+}
+function toggleSel(t, on) { on ? selected.add(t) : selected.delete(t); renderPreviews(); }
+
+async function tryPassword(token) {
+  const pw = document.getElementById('pw-' + token).value;
+  const save = document.getElementById('save-' + token).checked;
+  const res = await fetch('/import/password', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+                                                body: JSON.stringify({ token, password: pw, save }) });
+  const p = await res.json();
+  const i = previews.findIndex(x => x.token === token);
+  if (i >= 0) previews[i] = p;
+  if (p.default_selected) selected.add(token);
+  renderPreviews();
+  if (p.status === 'needs_password') { const el = document.getElementById('pw-' + token); el.classList.add('is-invalid'); el.focus(); }
+}
+
+// ── import ─────────────────────────────────────────────────────────────────
+document.getElementById('importBtn').addEventListener('click', async () => {
+  const tokens = [...selected];
+  if (!tokens.length) return;
+  const btn = document.getElementById('importBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Adding…';
+  let data;
+  try {
+    const res = await fetch('/import/confirm', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ tokens }) });
+    if (!res.ok) throw new Error('server error ' + res.status + ' — see the Finance Hub window for details');
+    data = await res.json();
+  } catch (e) {
+    btn.innerHTML = '<i class="bi bi-plus-circle me-1"></i>Add <span id="selCount">0</span> selected'; renderPreviews();
+    document.getElementById('results').innerHTML = `<div class="alert alert-danger py-2 px-3" style="font-size:.82rem">Adding failed: ${esc(e.message)}</div>`;
+    return;
+  }
+  btn.innerHTML = '<i class="bi bi-plus-circle me-1"></i>Add <span id="selCount">0</span> selected';
+  const total = data.filter(r => r.ok).reduce((s, r) => s + (r.imported || 0), 0);
+  document.getElementById('results').innerHTML = `
+    <div class="chart-card mb-3"><h6 class="mb-2"><i class="bi bi-check2-circle me-2 text-success"></i>3 · Added</h6>
+      ${total ? `<div class="alert alert-success py-2 px-3 mb-2" style="font-size:.82rem"><strong>${total} transactions</strong> added. <a href="/" class="alert-link ms-1">Dashboard →</a> <a href="/loans" class="alert-link ms-2">EMIs &amp; Loans →</a></div>` : ''}
+      ${data.map(r => `<div class="d-flex gap-2 p-2 rounded mb-1" style="background:${r.ok ? 'rgba(34,197,94,.08)' : 'rgba(239,68,68,.08)'}">
+        <i class="bi ${r.ok ? 'bi-check-circle-fill text-success' : 'bi-x-circle-fill text-danger'} mt-1"></i>
+        <div><div style="font-size:.8rem;font-weight:600">${esc(r.file)}</div><div style="font-size:.76rem;color:var(--muted)">${esc(r.msg)}</div></div></div>`).join('')}
+      <div class="mt-2"><a href="/import" class="btn btn-sm btn-outline-primary">Refresh history</a></div></div>`;
+  previews = previews.filter(p => !tokens.includes(p.token)); selected.clear(); renderPreviews();
+});
+
+// ── delete all ─────────────────────────────────────────────────────────────
+const resetModal = new bootstrap.Modal(document.getElementById('resetModal'));
+function confirmReset() { resetModal.show(); }
+function doReset() {
+  resetModal.hide();
+  fetch('/import/delete-all', { method: 'POST' }).then(r => r.json()).then(d => {
+    document.getElementById('results').innerHTML = `<div class="alert alert-success py-2 px-3" style="font-size:.82rem"><i class="bi bi-check-circle-fill me-2"></i>${esc(d.msg)}</div>`;
+  });
+}
+if (previews.length) renderPreviews();     // 1.5: statements opened from the mail inbox
+</script>
+{% endblock %}

@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Payee Rules – Finance Hub{% endblock %}
+{% block page_title %}Payee rules{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap gap-2 align-items-start mb-3">
+  <div class="text-muted" style="font-size:.82rem;max-width:760px">
+    A rule is created when you rename a transaction and choose <strong>“All from this payee — past and future imports”</strong>.
+    Rules are checked before the built-in ones, every time statements are imported. Transactions you edited one by one
+    ({{ manual }} so far) are never changed by rules.
+  </div>
+  <form method="post" action="{{ url_for('rules_reapply') }}" class="ms-auto d-flex align-items-center gap-2">
+    <div class="form-check" style="font-size:.78rem"><input class="form-check-input" type="checkbox" name="include_manual" id="im">
+      <label class="form-check-label" for="im">also reset my one-off edits</label></div>
+    <button class="btn btn-sm btn-outline-primary" onclick="return !document.getElementById('im').checked || confirm('Reset all one-off edits?')">
+      <i class="bi bi-arrow-repeat me-1"></i>Re-apply all rules</button>
+  </form>
+</div>
+
+<div class="chart-card p-0">
+  <table class="table table-dark table-sm mb-0">
+    <thead><tr><th>When</th><th>Name shown</th><th>Category</th><th>Entity</th><th>Person</th><th class="text-end">Matches</th><th style="width:90px"></th></tr></thead>
+    <tbody>
+    {% for r in rules %}
+      <tr>
+        <td><small class="text-muted">{{ 'payee is' if r.match_type=='payee' else 'contains' }}</small> <code>{{ r.pattern }}</code></td>
+        <td>{{ r.display_name or '—' }}</td>
+        <td><small>{{ r.path }}</small></td>
+        <td>{{ r.entity or '' }}</td>
+        <td>{{ r.person or '' }}</td>
+        <td class="text-end"><a href="{{ url_for('transactions', search=r.display_name or r.pattern, start='2000-01-01', end='2099-12-31') }}">{{ r.n }}</a></td>
+        <td class="text-end">
+          <button class="btn btn-sm btn-outline-secondary py-0" data-bs-toggle="collapse" data-bs-target="#e{{ r.id }}"><i class="bi bi-pencil"></i></button>
+          <form method="post" action="{{ url_for('rule_delete', rid=r.id) }}" class="d-inline" onsubmit="return confirm('Delete this rule? Its transactions go back to automatic categories.')">
+            <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button></form>
+        </td>
+      </tr>
+      <tr class="collapse" id="e{{ r.id }}"><td colspan="7">
+        <form method="post" action="{{ url_for('rule_update', rid=r.id) }}" class="row g-2 align-items-end">
+          <div class="col-md-2"><select name="match_type" class="form-select form-select-sm">
+            <option value="payee" {% if r.match_type=='payee' %}selected{% endif %}>payee is exactly</option>
+            <option value="contains" {% if r.match_type=='contains' %}selected{% endif %}>description contains</option></select></div>
+          <div class="col-md-2"><input name="pattern" class="form-control form-control-sm" value="{{ r.pattern }}"></div>
+          <div class="col-md-2"><input name="display_name" class="form-control form-control-sm" value="{{ r.display_name or '' }}" placeholder="name shown"></div>
+          <div class="col-md-3"><select name="category_id" class="form-select form-select-sm">
+            {% for o in cat_options %}<option value="{{ o.id }}" {% if o.id==r.category_id %}selected{% endif %}>{{ o.label }}</option>{% endfor %}</select></div>
+          <div class="col-md-1"><select name="entity" class="form-select form-select-sm">
+            {% for e in entities %}<option {% if e==r.entity %}selected{% endif %}>{{ e }}</option>{% endfor %}</select></div>
+          <div class="col-md-1"><select name="person" class="form-select form-select-sm"><option value="">(auto)</option>
+            {% for p in people %}<option {% if p==r.person %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></div>
+          <div class="col-md-1"><button class="btn btn-sm btn-primary w-100">Save</button></div>
+        </form>
+      </td></tr>
+    {% else %}
+      <tr><td colspan="7" class="text-center text-muted py-4">No rules yet. Open <a href="{{ url_for('transactions') }}">Transactions</a>, click a row, rename it and choose “All from this payee”.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

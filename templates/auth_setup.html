@@ -1,0 +1,24 @@
+{% extends "auth_base.html" %}
+{% block title %}Set up – Finance Hub{% endblock %}
+{% block sub %}First start · create your user{% endblock %}
+{% block body %}
+<p style="font-size:.86rem">Every user's data is kept in its own <b>encrypted</b> database. Only that user, logging in with
+  their password, can open it — a copy of the files is unreadable.</p>
+{% if copies %}<div class="alert alert-warning py-2 px-3" style="font-size:.8rem"><i class="bi bi-exclamation-triangle me-1"></i>
+  Found <b>{{ copies|length }}</b> unencrypted file{{ 's' if copies|length != 1 }} from earlier versions (old databases, backups,
+  uploaded statements). As you asked, the Hub starts clean: they are overwritten and deleted when you continue.</div>{% endif %}
+<form method="post" autocomplete="off">
+  <label class="form-label">Your name (shown in the Hub — stored only inside your encrypted data)</label>
+  <input name="full_name" class="form-control mb-3" required autofocus maxlength="60" placeholder="e.g. Ravi Kumar">
+  <label class="form-label">User ID (what you type to log in)</label>
+  <input name="username" class="form-control mb-3" required minlength="3" autocomplete="username">
+  <label class="form-label">Password — at least 10 characters, mix of letters, numbers or symbols</label>
+  <input name="password" type="password" class="form-control mb-2" required minlength="10" autocomplete="new-password">
+  <input name="password2" type="password" class="form-control mb-4" required placeholder="Type it again" autocomplete="new-password">
+  {% if copies %}<div class="form-check mb-3"><input class="form-check-input" type="checkbox" name="erase" value="1" id="erase" checked>
+    <label class="form-check-label" for="erase" style="font-size:.84rem">Securely erase the {{ copies|length }} old unencrypted file{{ 's' if copies|length != 1 }}</label></div>{% endif %}
+  <button class="btn btn-cta w-100"><i class="bi bi-shield-lock me-1"></i>Create my encrypted Hub</button>
+</form>
+<p class="muted mt-3 mb-0" style="font-size:.74rem">Next you'll get a one-time <b>recovery key</b>. If every password is forgotten,
+  only the recovery key can open the data — nobody else (including me) can.</p>
+{% endblock %}

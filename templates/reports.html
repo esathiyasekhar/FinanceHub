@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}Reports – Finance Hub{% endblock %}
+{% block page_title %}Reports{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  {% for lbl, st, en in fy_opts %}
+    <a class="btn btn-sm {{ 'btn-primary' if lbl == fy_sel else 'btn-outline-secondary' }}" href="{{ url_for('reports_page', fy=lbl) }}">{{ lbl }}</a>
+  {% endfor %}
+  <span class="text-muted small ms-2">{{ fy_start|short_date }} – {{ fy_end|short_date }}</span>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-4">
+    <div class="chart-card h-100">
+      <h6><i class="bi bi-diagram-3 me-2 text-primary"></i>Income &amp; expenses by category</h6>
+      <div class="text-muted mb-3" style="font-size:.82rem">Type › Head › Sub-head › Item, by entity and person, month by month,
+        with every transaction — transfers (card bills, own accounts, loan principal) kept out.</div>
+      <a class="btn btn-success btn-sm w-100 mb-2" href="{{ url_for('breakdown_export', start=fy_start, end=fy_end) }}"><i class="bi bi-file-earmark-excel me-1"></i>Breakdown Excel — {{ fy_sel }}</a>
+      <a class="btn btn-outline-info btn-sm w-100" href="{{ url_for('breakdown', start=fy_start, end=fy_end) }}"><i class="bi bi-eye me-1"></i>Open Breakdown</a>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="chart-card h-100">
+      <h6><i class="bi bi-file-earmark-spreadsheet me-2 text-primary"></i>Cash-flow report</h6>
+      <div class="text-muted mb-3" style="font-size:.82rem">Money in and out per month and per account (every transaction, including transfers),
+        for reconciling with bank and card statements.</div>
+      <a class="btn btn-success btn-sm w-100" href="{{ url_for('download_report', start=fy_start, end=fy_end) }}"><i class="bi bi-download me-1"></i>Cash-flow Excel — {{ fy_sel }}</a>
+    </div>
+  </div>
+  <div class="col-lg-4">
+    <div class="chart-card h-100">
+      <h6><i class="bi bi-filetype-csv me-2 text-primary"></i>Transactions (CSV)</h6>
+      <div class="text-muted mb-3" style="font-size:.82rem">Every transaction with its name, Type / Head / Sub-head / Item, entity, person and notes.</div>
+      <a class="btn btn-primary btn-sm w-100" href="{{ url_for('export_csv', start=fy_start, end=fy_end) }}"><i class="bi bi-download me-1"></i>CSV — {{ fy_sel }}</a>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="chart-card">
+      <div class="d-flex align-items-center mb-2">
+        <h6 class="mb-0"><i class="bi bi-building me-2 text-warning"></i>ITR-relevant summary — {{ fy_sel }}</h6>
+        <span class="ms-auto text-muted" style="font-size:.74rem">For reference only: from the statements and contract notes in the Hub. Check against Form 16, 26AS / AIS and your broker's capital-gains statement.</span>
+      </div>
+      {% if s.to_review %}<div class="alert alert-warning py-1 px-2 mb-2" style="font-size:.8rem">{{ s.to_review }} transactions in this year are still “To review” —
+        <a class="alert-link" href="{{ url_for('transactions', review=1, start=fy_start, end=fy_end) }}">categorise them</a> so the figures are complete.</div>{% endif %}
+      <div class="row g-3">
+        {% for title, rows, cls in [('Income received', s.income, 'amount-credit'), ('Deduction-related payments', s.deductions, ''), ('Taxes paid', s.taxes, '')] %}
+        <div class="col-lg-4">
+          <div class="text-muted mb-1" style="font-size:.74rem;text-transform:uppercase;letter-spacing:.5px">{{ title }}</div>
+          <table class="table table-dark table-sm mb-0" style="font-size:.82rem">
+            {% for lbl, v in rows %}<tr><td>{{ lbl }}</td><td class="text-end {{ cls if v else 'text-muted' }}">{{ v|inr if v else '—' }}</td></tr>{% endfor %}
+          </table>
+        </div>
+        {% endfor %}
+        <div class="col-12">
+          <div class="text-muted mb-1" style="font-size:.74rem;text-transform:uppercase;letter-spacing:.5px">Capital gains on listed shares (from contract notes, first-in-first-out)</div>
+          <div class="d-flex flex-wrap gap-4" style="font-size:.86rem">
+            <span>Sale value <strong>{{ s.cg.sell_value|inr }}</strong></span>
+            <span>Short-term (≤ 12 months) <strong class="{{ 'amount-credit' if s.cg.stcg >= 0 else 'amount-debit' }}">{{ s.cg.stcg|inr }}</strong></span>
+            <span>Long-term (&gt; 12 months) <strong class="{{ 'amount-credit' if s.cg.ltcg >= 0 else 'amount-debit' }}">{{ s.cg.ltcg|inr }}</strong></span>
+            {% if s.cg.unmatched_qty %}<span class="text-warning">Sold without a buy in the Hub: {{ '%g'|format(s.cg.unmatched_qty) }} shares, {{ s.cg.unmatched_value|inr }} —
+              add opening holdings on <a href="{{ url_for('inv_trades') }}" class="text-warning">Trades</a> for a complete figure</span>{% endif %}
+          </div>
+          {% if s.cg.rows %}
+          <details class="mt-1"><summary style="font-size:.78rem;cursor:pointer">Show {{ s.cg.rows|length }} matched sale(s)</summary>
+            <table class="table table-dark table-sm mt-1 mb-0" style="font-size:.78rem">
+              <thead><tr><th>Sold</th><th>Stock</th><th class="text-end">Qty</th><th>Bought</th><th>Term</th><th class="text-end">Gain</th></tr></thead>
+              <tbody>{% for r in s.cg.rows %}<tr><td>{{ r.date|short_date }}</td><td>{{ r.name }}</td><td class="text-end">{{ '%g'|format(r.qty) }}</td>
+                <td>{{ r.bought|short_date if r.bought else '—' }}</td><td>{{ r.term }}</td>
+                <td class="text-end {{ 'amount-credit' if (r.gain or 0) >= 0 else 'amount-debit' }}">{{ r.gain|inr if r.gain is not none else '—' }}</td></tr>{% endfor %}</tbody>
+            </table></details>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

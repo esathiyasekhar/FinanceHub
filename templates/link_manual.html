@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Link a transfer – Finance Hub{% endblock %}
+{% block page_title %}Link a transfer{% endblock %}
+{% block content %}
+<div class="hub-card mb-3">
+  <div class="small-label mb-1">This transaction</div>
+  <div class="d-flex align-items-center gap-3">
+    <div><b>{{ a.account }}</b> · {{ a.date|short_date }}<div class="muted" style="font-size:.8rem">{{ a.display_name or a.description }}</div></div>
+    <b class="ms-auto num {{ 'amount-debit' if a.type == 'debit' else 'amount-credit' }}" style="font-size:1.2rem">{{ '−' if a.type == 'debit' else '+' }}{{ a.amount|inr }}</b>
+  </div>
+</div>
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="hub-card">
+      <h6>Its other side in another account <span class="muted fw-normal" style="font-size:.76rem">(same amount, within 15 days)</span></h6>
+      {% for c in cands %}
+      <form method="post" class="list-row">
+        <input type="hidden" name="txn" value="{{ a.id }}"><input type="hidden" name="other" value="{{ c.id }}">
+        <div class="min-w-0"><b style="font-size:.85rem">{{ c.account }}</b> · {{ c.date|short_date }}<div class="muted text-truncate" style="font-size:.74rem;max-width:300px">{{ c.display_name or c.description }}</div></div>
+        <select name="kind" class="form-select form-select-sm ms-auto" style="width:auto">{% for k, v in KINDS.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select>
+        <button class="btn btn-sm btn-primary">Link</button>
+      </form>
+      {% else %}<div class="empty"><i class="bi bi-search"></i>No matching transaction in your other accounts yet.</div>{% endfor %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="hub-card">
+      <h6>Other side not in the Hub</h6>
+      <form method="post" class="row g-2">
+        <input type="hidden" name="txn" value="{{ a.id }}">
+        <div class="col-12"><label class="form-label">Account / broker / person on the other side</label>
+          <input name="counter" class="form-control form-control-sm" list="dlAcc" required></div>
+        <datalist id="dlAcc">{% for n in accts %}<option>{{ n }}</option>{% endfor %}</datalist>
+        <div class="col-12"><label class="form-label">Kind</label><select name="kind" class="form-select form-select-sm">{% for k, v in KINDS.items() %}<option value="{{ k }}">{{ v }}</option>{% endfor %}</select></div>
+        <div class="col-12"><button class="btn btn-sm btn-primary w-100">Link</button></div>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

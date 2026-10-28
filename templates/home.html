@@ -1,0 +1,217 @@
+{% extends "base.html" %}
+{% block title %}Home – Finance Hub{% endblock %}
+{% block page_title %}Home{% endblock %}
+
+{% block head %}
+<style>
+  .hello h3 { font-weight:800; letter-spacing:-.3px; margin:0; }
+  .due-row { display:flex; align-items:center; gap:.75rem; padding:.55rem .1rem; border-bottom:1px solid var(--border); }
+  .due-row:last-child { border-bottom:0; }
+  .due-date { width:46px; text-align:center; flex:none; border-radius:10px; padding:.25rem 0; background:var(--tint); border:1px solid var(--border); }
+  .due-date .d { font-weight:800; font-size:1.05rem; line-height:1; }
+  .due-date .m { font-size:.62rem; text-transform:uppercase; color:var(--muted); font-weight:700; letter-spacing:.5px; }
+  .due-date.today { background:var(--indigo); color:#fff; border-color:transparent; } .due-date.today .m { color:rgba(255,255,255,.8); }
+  .due-row .t { font-weight:600; font-size:.86rem; }
+  .due-row .s { font-size:.72rem; color:var(--muted); }
+  .due-row .a { margin-left:auto; text-align:right; font-weight:700; font-variant-numeric:tabular-nums; font-size:.9rem; }
+  .alert-row { display:flex; gap:.7rem; padding:.6rem .1rem; border-bottom:1px solid var(--border); }
+  .alert-row:last-child { border-bottom:0; }
+  .alert-row .ri { width:32px; height:32px; border-radius:10px; flex:none; display:flex; align-items:center; justify-content:center;
+                   background:color-mix(in srgb, var(--tone) 15%, transparent); color:var(--tone); }
+  .lv-danger { --tone:var(--red); } .lv-warning { --tone:var(--amber); } .lv-info { --tone:var(--indigo); }
+  .ring { width:64px; height:64px; border-radius:50%; flex:none; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:.9rem;
+          background:conic-gradient(var(--tone) calc(var(--p) * 1%), var(--tint2) 0); position:relative; }
+  .ring::before { content:''; position:absolute; inset:7px; border-radius:50%; background:var(--card-bg); }
+  .ring span { position:relative; }
+  .flow-n { font-size:1.15rem; font-weight:800; font-variant-numeric:tabular-nums; }
+</style>
+{% endblock %}
+
+{% block content %}
+{% set T = b.totals %}
+<div class="hello d-flex flex-wrap align-items-end gap-3 mb-3">
+  <div>
+    <div class="muted" style="font-size:.82rem">{{ today.strftime('%A, %d %B %Y') }}</div>
+    <h3 id="greet">Welcome back</h3>
+    {% if not display_name %}<a href="{{ url_for('users_page') }}" class="small"><i class="bi bi-person-badge me-1"></i>Tell the Hub your name</a>{% endif %}
+  </div>
+  <div class="ms-auto d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('import_page') }}" class="btn btn-sm btn-cta"><i class="bi bi-cloud-arrow-up me-1"></i>Add Statements</a>
+    <a href="{{ url_for('accounts') }}" class="btn btn-sm btn-soft"><i class="bi bi-plus-lg me-1"></i>Add account</a>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-sm btn-soft"><i class="bi bi-bar-chart-line me-1"></i>Insights</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-12 col-md-6 col-xl-3">
+    <a href="{{ url_for('networth_page') }}" class="hub-card kpi hero tone-indigo d-block text-decoration-none h-100">
+      <div class="d-flex justify-content-between"><div class="lbl">Net worth</div><div class="ico"><i class="bi bi-graph-up-arrow"></i></div></div>
+      <div class="val">{{ b.net|inr }}</div>
+      <div class="sub">{% if prev and prev.day != today.isoformat() %}{% set ch = b.net - prev.net %}
+        <i class="bi {{ 'bi-arrow-up-right' if ch >= 0 else 'bi-arrow-down-right' }}"></i> {{ ch|abs|inr }} since {{ prev.day|short_date }}
+        {% else %}assets {{ b.assets|inr }} · owed {{ b.liabilities|inr }}{% endif %}</div>
+    </a>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <a href="{{ url_for('accounts', tab='bank') }}" class="hub-card kpi tone-teal d-block text-decoration-none h-100" style="color:inherit">
+      <div class="d-flex justify-content-between"><div class="lbl">Cash in banks</div><div class="ico"><i class="bi bi-bank"></i></div></div>
+      <div class="val">{{ T.bank|inr }}</div>
+      <div class="sub">{{ b.counts.bank }} accounts{% if T.wallet %} · wallets {{ T.wallet|inr }}{% endif %}</div>
+    </a>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <a href="{{ url_for('dues_page') }}" class="hub-card kpi tone-coral d-block text-decoration-none h-100" style="color:inherit">
+      <div class="d-flex justify-content-between"><div class="lbl">Due in 30 days</div><div class="ico"><i class="bi bi-calendar-event"></i></div></div>
+      <div class="val">{{ cash.need|inr }}</div>
+      <div class="sub">{{ n_upcoming }} payments · card dues {{ T.card|inr }}</div>
+    </a>
+  </div>
+  <div class="col-12 col-md-6 col-xl-3">
+    <a href="{{ url_for('accounts', tab='loan') }}" class="hub-card kpi tone-amber d-block text-decoration-none h-100" style="color:inherit">
+      <div class="d-flex justify-content-between"><div class="lbl">Loans &amp; EMIs</div><div class="ico"><i class="bi bi-house-door"></i></div></div>
+      <div class="val">{{ (T.loan + T.emi)|inr }}</div>
+      <div class="sub">EMIs {{ b.monthly_emi|inr }} a month</div>
+    </a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-7">
+    <div class="hub-card h-100">
+      <div class="card-head"><h6><i class="bi bi-calendar-week me-2 text-primary"></i>Next 30 days</h6>
+        <a class="more" href="{{ url_for('dues_page') }}">Calendar <i class="bi bi-arrow-right"></i></a></div>
+      <div class="soft-box mb-2 {{ 'tone-red' if cash.gap < 0 else 'tone-teal' }}">
+        <div class="d-flex justify-content-between" style="font-size:.8rem">
+          <span>Needed from bank accounts <b class="num">{{ cash.need|inr }}</b></span>
+          <span class="muted">in banks <b class="num" style="color:var(--text)">{{ cash.have|inr }}</b>{% if cash.as_of %} <span style="font-size:.7rem">· {{ cash.as_of|short_date }}</span>{% endif %}</span>
+        </div>
+        <div class="bar mt-1"><span style="width:{{ cash.pct }}%"></span></div>
+        <div style="font-size:.74rem" class="mt-1 {{ 'text-danger' if cash.gap < 0 else 'muted' }}">
+          {% if cash.gap < 0 %}<i class="bi bi-exclamation-triangle me-1"></i>Short by {{ (-cash.gap)|inr }} — move money or pay some bills from another account.
+          {% else %}{{ cash.gap|inr }} left after these payments.{% endif %}</div>
+      </div>
+      {% for e in upcoming %}
+      <div class="due-row">
+        <div class="due-date {{ 'today' if e.date == today }}"><div class="d">{{ e.date.day }}</div><div class="m">{{ e.date.strftime('%b') }}</div></div>
+        <div class="min-w-0">
+          <div class="t text-truncate">{% if e.account_id %}<a href="{{ url_for('account_detail', acc_id=e.account_id) }}" style="color:inherit;text-decoration:none">{{ e.title }}</a>{% else %}{{ e.title }}{% endif %}</div>
+          <div class="s"><i class="bi {{ e.icon }} me-1"></i>{{ e.status }}{% if e.min %} · min {{ e.min|inr }}{% endif %}{% if e.date < today %} · <span class="text-danger">{{ (today - e.date).days }} days late</span>{% endif %}</div>
+        </div>
+        <div class="a {{ 'amount-credit' if e.inflow else ('' if e.cash else 'muted') }}">{{ e.amount|inr if e.amount is not none else '—' }}</div>
+      </div>
+      {% else %}
+      <div class="empty"><i class="bi bi-calendar-check"></i>Nothing due in the next 30 days.<br><span style="font-size:.78rem">Card bills appear once you add their statements; set billing days on cards to see expected bills.</span></div>
+      {% endfor %}
+      {% if n_upcoming > upcoming|length %}<div class="text-center mt-2"><a href="{{ url_for('dues_page') }}" class="small">+ {{ n_upcoming - upcoming|length }} more</a></div>{% endif %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="hub-card mb-3">
+      <div class="card-head"><h6><i class="bi bi-bell me-2 text-primary"></i>Needs attention</h6>
+        <a class="more" href="{{ url_for('alerts_page') }}">All {{ alerts|length }} <i class="bi bi-arrow-right"></i></a></div>
+      {% for a in alerts[:5] %}
+      <div class="alert-row lv-{{ a.level }}">
+        <div class="ri"><i class="bi {{ a.icon }}"></i></div>
+        <div class="min-w-0"><div style="font-size:.85rem;font-weight:600">{{ a.title }}</div><div class="muted" style="font-size:.74rem">{{ a.detail }}</div>
+          {% if a.link %}<a href="{{ a.link }}" class="small fw-semibold">{{ a.link_label }} →</a>{% endif %}</div>
+      </div>
+      {% else %}
+      <div class="empty"><i class="bi bi-emoji-smile"></i>All clear — nothing needs attention.</div>
+      {% endfor %}
+    </div>
+    <a href="{{ url_for('month_close_page', m=close.month) }}" class="hub-card d-flex align-items-center gap-3 text-decoration-none tone-{{ 'green' if close.closed else 'violet' }}" style="color:inherit">
+      <div class="ring" style="--p:{{ 100 if close.closed else close.pct }}"><span>{{ '✓' if close.closed else close.done ~ '/' ~ close.total }}</span></div>
+      <div><div class="fw-bold">Close {{ close.label }}</div>
+        <div class="muted" style="font-size:.76rem">{{ 'Closed — figures are final.' if close.closed else 'Statements, categories, bills and net worth — a short monthly checklist.' }}</div></div>
+      <i class="bi bi-chevron-right ms-auto muted"></i>
+    </a>
+  </div>
+</div>
+
+<div class="row g-3 mb-3">
+  <div class="col-lg-7">
+    <div class="hub-card h-100">
+      <div class="card-head"><h6><i class="bi bi-arrow-down-up me-2 text-primary"></i>Cash flow · {{ flow_label }}</h6>
+        <a class="more" href="{{ url_for('dashboard') }}">Insights <i class="bi bi-arrow-right"></i></a></div>
+      <div class="row g-2 mb-2 text-center">
+        <div class="col-3"><div class="small-label">Income</div><div class="flow-n amount-credit">{{ d.income|inr }}</div></div>
+        <div class="col-3"><div class="small-label">Spent</div><div class="flow-n amount-debit">{{ d.expense|inr }}</div></div>
+        <div class="col-3"><div class="small-label">Invested</div><div class="flow-n" style="color:var(--blue)">{{ d.investment|inr }}</div></div>
+        <div class="col-3"><div class="small-label">Saved</div><div class="flow-n">{{ d.saved|inr }}</div>
+          <div class="muted" style="font-size:.7rem">{% if d.income > 0 and d.saved >= 0 %}{{ (100 * d.saved / d.income)|round|int }}% of income{% elif d.saved < 0 %}spent more than came in{% endif %}</div></div>
+      </div>
+      <div style="height:190px"><canvas id="flowChart"></canvas></div>
+      {% if d.review %}<div class="muted mt-2" style="font-size:.76rem"><i class="bi bi-info-circle me-1"></i>{{ d.review }} transactions this month are still “To review”.
+        <a href="{{ url_for('transactions', review=1) }}">Categorise</a></div>{% endif %}
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="hub-card h-100">
+      <div class="card-head"><h6><i class="bi bi-pie-chart me-2 text-primary"></i>Spending by head · {{ flow_label }}</h6>
+        <a class="more" href="{{ url_for('budgets_page') }}">Budgets <i class="bi bi-arrow-right"></i></a></div>
+      {% set maxs = (budgets|map(attribute='spent')|max) if budgets else 1 %}
+      {% for r in budgets %}
+      {% set tone = 'red' if r.state == 'over' else 'amber' if r.state == 'warn' else 'teal' if r.budget else 'indigo' %}
+      <div class="mb-2 tone-{{ tone }}">
+        <div class="d-flex" style="font-size:.82rem"><span class="fw-semibold">{{ r.name }}</span>
+          <span class="ms-auto num">{{ r.spent|inr }}{% if r.budget %} <span class="muted">/ {{ r.budget|inr }}</span>{% endif %}</span></div>
+        <div class="bar mt-1"><span style="width:{{ [r.pct if r.budget else (100 * r.spent / (maxs or 1)), 100]|min }}%"></span></div>
+      </div>
+      {% else %}
+      <div class="empty"><i class="bi bi-pie-chart"></i>No spending yet this month.</div>
+      {% endfor %}
+      {% if budgets and not budgets|selectattr('budget')|list %}<div class="muted mt-2" style="font-size:.76rem">Set a monthly budget per head to track it here. <a href="{{ url_for('budgets_page') }}">Set budgets</a></div>{% endif %}
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-7">
+    <div class="hub-card h-100">
+      <div class="card-head"><h6><i class="bi bi-graph-up me-2 text-primary"></i>Net worth</h6><a class="more" href="{{ url_for('networth_page') }}">Details <i class="bi bi-arrow-right"></i></a></div>
+      <div style="height:200px"><canvas id="nwChart"></canvas></div>
+      <div class="muted mt-1" style="font-size:.72rem">Recorded each day you open the Hub.</div>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="hub-card h-100">
+      <div class="card-head"><h6><i class="bi bi-credit-card-2-front me-2 text-primary"></i>Card utilisation</h6>
+        <span class="more {{ 'text-danger' if (util_all or 0) >= 30 else 'muted' }}">{{ ('%.0f'|format(util_all) ~ '% overall') if util_all is not none else '' }}</span></div>
+      {% for a in b.groups.card|selectattr('status','equalto','active')|selectattr('util')|sort(attribute='util', reverse=true) %}
+      {% if loop.index <= 6 %}
+      <div class="mb-2 {{ 'tone-red' if a.util >= 75 else 'tone-amber' if a.util >= 30 else 'tone-green' }}">
+        <div class="d-flex" style="font-size:.8rem"><a href="{{ url_for('account_detail', acc_id=a.id) }}" style="color:var(--text);text-decoration:none">{{ a.name }}</a>
+          <span class="ms-auto num">{{ '%.0f'|format(a.util) }}% <span class="muted">· {{ a.outstanding|inr }}</span></span></div>
+        <div class="bar mt-1"><span style="width:{{ [a.util,100]|min }}%"></span></div>
+      </div>
+      {% endif %}
+      {% else %}
+      <div class="empty"><i class="bi bi-credit-card"></i>Add card statements to see utilisation.</div>
+      {% endfor %}
+      <a href="{{ url_for('tools_page') }}" class="small"><i class="bi bi-lightning-charge me-1"></i>Best card to use today</a>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  const h = new Date().getHours();
+  const nm = {{ (display_name or '')|tojson }};
+  document.getElementById('greet').textContent = (h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening') + (nm ? ', ' + nm.split(' ')[0] : '');
+  const tr = {{ trend_json|safe }};
+  new Chart(document.getElementById('flowChart'), {type: 'bar', data: {labels: tr.m, datasets: [
+      {label: 'Income', data: tr.i, backgroundColor: '#14b8a6', borderRadius: 6, maxBarThickness: 26},
+      {label: 'Spent', data: tr.e, backgroundColor: '#f9735b', borderRadius: 6, maxBarThickness: 26}]},
+    options: {maintainAspectRatio: false, plugins: {legend: {position: 'bottom', labels: {boxWidth: 10}},
+      tooltip: {callbacks: {label: c => c.dataset.label + ' ' + HUB.inr(c.parsed.y)}}},
+      scales: {y: {ticks: {callback: v => HUB.inrShort(v)}, grid: {color: HUB.css('--tint2')}}, x: {grid: {display: false}}}}});
+  const nw = {{ hist_json|safe }};
+  new Chart(document.getElementById('nwChart'), {type: 'line', data: {labels: nw.map(r => r.d), datasets: [
+      {label: 'Net worth', data: nw.map(r => r.n), borderColor: '#6366f1', backgroundColor: 'rgba(99,102,241,.14)', fill: true, tension: .3, pointRadius: nw.length > 30 ? 0 : 3}]},
+    options: {maintainAspectRatio: false, plugins: {legend: {display: false}, tooltip: {callbacks: {label: c => HUB.inr(c.parsed.y)}}},
+      scales: {y: {ticks: {callback: v => HUB.inrShort(v)}, grid: {color: HUB.css('--tint2')}}, x: {grid: {display: false}}}}});
+})();
+</script>
+{% endblock %}

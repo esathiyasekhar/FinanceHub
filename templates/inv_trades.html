@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Trades – Finance Hub{% endblock %}
+{% block page_title %}Investments — trades{% endblock %}
+
+{% block head %}
+<style>.tbl td, .tbl th { font-size:.8rem; vertical-align:middle; } .muted { color:var(--muted); }</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap gap-2 mb-3">
+  <a href="{{ url_for('inv_portfolio') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left me-1"></i>Portfolio</a>
+  <a href="{{ url_for('inv_brokers_page') }}" class="btn btn-sm btn-outline-secondary"><i class="bi bi-diagram-2 me-1"></i>Holdings by broker</a>
+  <a href="{{ url_for('inv_import') }}" class="btn btn-sm btn-primary"><i class="bi bi-cloud-upload me-1"></i>Import broker files</a>
+  <button class="btn btn-sm btn-outline-success" data-bs-toggle="collapse" data-bs-target="#addTrade"><i class="bi bi-plus me-1"></i>Add trade / opening holding</button>
+</div>
+
+<div id="addTrade" class="collapse chart-card mb-3">
+  <form method="post" action="{{ url_for('inv_trade_add') }}" class="row g-2 align-items-end">
+    <div class="col-md-2"><label class="form-label small muted mb-0">Broker</label>
+      <select name="broker_id" class="form-select form-select-sm">{% for b in brokers %}<option value="{{ b.id }}">{{ b.name }}</option>{% endfor %}</select></div>
+    <div class="col-md-2"><label class="form-label small muted mb-0">Date</label><input type="date" name="date" class="form-control form-control-sm" required></div>
+    <div class="col-md-2"><label class="form-label small muted mb-0">NSE symbol</label><input name="symbol" class="form-control form-control-sm" required></div>
+    <div class="col-md-2"><label class="form-label small muted mb-0">ISIN (optional)</label><input name="isin" class="form-control form-control-sm"></div>
+    <div class="col-md-1"><label class="form-label small muted mb-0">Side</label>
+      <select name="side" class="form-select form-select-sm"><option value="buy">Buy</option><option value="sell">Sell</option></select></div>
+    <div class="col-md-1"><label class="form-label small muted mb-0">Qty</label><input name="qty" class="form-control form-control-sm" required></div>
+    <div class="col-md-1"><label class="form-label small muted mb-0">Price</label><input name="price" class="form-control form-control-sm" required></div>
+    <div class="col-md-1"><button class="btn btn-sm btn-success w-100">Add</button></div>
+    <div class="col-12 small muted">For shares you held before the first imported statement, add one <em>Buy</em> with your average price as an opening holding.
+      If you give the ISIN, it joins the stock imported from contract notes.</div>
+  </form>
+</div>
+
+<form method="get" class="d-flex flex-wrap gap-2 mb-2 align-items-center">
+  <select name="broker" class="form-select form-select-sm" style="width:auto"><option value="">All brokers</option>
+    {% for b in brokers %}<option value="{{ b.id }}" {% if a.get('broker') == b.id|string %}selected{% endif %}>{{ b.name }}</option>{% endfor %}</select>
+  <select name="side" class="form-select form-select-sm" style="width:auto"><option value="">Buy &amp; sell</option>
+    <option value="buy" {% if a.get('side')=='buy' %}selected{% endif %}>Buy</option><option value="sell" {% if a.get('side')=='sell' %}selected{% endif %}>Sell</option></select>
+  <select name="type" class="form-select form-select-sm" style="width:auto"><option value="">All asset types</option>
+    {% for t in types %}<option value="{{ t.key }}" {% if a.get('type') == t.key %}selected{% endif %}>{{ t.label }}</option>{% endfor %}
+    <option value="none" {% if a.get('type') == 'none' %}selected{% endif %}>Type not set</option></select>
+  <input type="date" name="start" class="form-control form-control-sm" style="width:auto" value="{{ a.get('start','') }}" title="From">
+  <input type="date" name="end" class="form-control form-control-sm" style="width:auto" value="{{ a.get('end','') }}" title="To">
+  <input name="q" class="form-control form-control-sm" style="max-width:200px" placeholder="Stock / ISIN" value="{{ a.get('q','') }}">
+  <select name="group" class="form-select form-select-sm" style="width:auto"><option value="broker" {{ 'selected' if group == 'broker' }}>Grouped by broker</option>
+    <option value="none" {{ 'selected' if group == 'none' }}>One list</option></select>
+  <button class="btn btn-sm btn-primary">Filter</button>
+  <div class="dropdown ms-auto"><button class="btn btn-sm btn-soft dropdown-toggle" data-bs-toggle="dropdown"><i class="bi bi-file-earmark-arrow-down me-1"></i>Report</button>
+    <ul class="dropdown-menu dropdown-menu-end">
+      <li><a class="dropdown-item" href="{{ url_for('report_trades', fmt='xlsx', **a.to_dict()) }}"><i class="bi bi-file-earmark-excel me-2"></i>Excel</a></li>
+      <li><a class="dropdown-item" href="{{ url_for('report_trades', fmt='pdf', **a.to_dict()) }}"><i class="bi bi-file-earmark-pdf me-2"></i>PDF</a></li></ul></div>
+</form>
+
+{% if groups %}
+<div class="row g-2 mb-3">
+  {% for g in groups %}
+  <div class="col-md-6 col-xl-3"><div class="hub-card py-2 tone-blue">
+    <div class="d-flex"><b>{{ g.name }}</b><a class="ms-auto small" href="{{ url_for('inv_trades', broker=g.id) }}">only this</a></div>
+    <div class="muted" style="font-size:.76rem">{{ g.rows|length }} trades · bought {{ g.buy|inr }} · sold {{ g.sell|inr }} · charges {{ g.charges|inr }}</div>
+  </div></div>
+  {% endfor %}
+</div>
+{% endif %}
+
+{% macro trade_table(rows) %}
+  <table class="table table-sm tbl mb-0">
+    <thead><tr><th>Date</th><th>Stock</th><th>Broker</th><th>Side</th><th class="text-end">Qty</th><th class="text-end">Price</th>
+      <th class="text-end">Charges</th><th class="text-end">Value</th><th>Source</th><th></th></tr></thead>
+    <tbody>
+    {% for t in rows %}
+      <tr><td>{{ t.trade_date|short_date }}</td><td><a href="{{ url_for('inv_stock', sid=t.security_id) }}">{{ t.name or t.symbol }}</a></td>
+        <td>{{ t.broker }}</td><td class="{{ 'text-success' if t.side == 'buy' else 'text-danger' }}">{{ t.side|upper }}</td>
+        <td class="text-end">{{ '%g'|format(t.qty) }}</td><td class="text-end">{{ '{:,.2f}'.format(t.price) }}</td>
+        <td class="text-end">{{ '{:,.2f}'.format(t.charges or 0) }}</td><td class="text-end">{{ '{:,.0f}'.format(t.qty * t.price) }}</td>
+        <td class="muted">{{ t.source }}{% if t.trade_id %} · #{{ t.trade_id }}{% endif %}</td>
+        <td><form method="post" action="{{ url_for('inv_trade_delete', tid=t.id) }}" onsubmit="return confirm('Delete this trade?')">
+          <button class="btn btn-sm btn-outline-danger py-0"><i class="bi bi-trash"></i></button></form></td></tr>
+    {% else %}
+      <tr><td colspan="10" class="muted text-center py-4">No trades match.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+{% endmacro %}
+
+{% if group == 'broker' and groups %}
+  {% for g in groups %}
+  <div class="chart-card p-0 mb-3" style="overflow:hidden">
+    <div class="d-flex align-items-center px-3 py-2" style="border-bottom:1px solid var(--border)"><b>{{ g.name }}</b>
+      <span class="muted ms-2" style="font-size:.78rem">{{ g.rows|length }} trades · net {{ (g.buy - g.sell)|inr }} invested · charges {{ g.charges|inr }}</span></div>
+    <div class="table-responsive">{{ trade_table(g.rows) }}</div>
+  </div>
+  {% endfor %}
+{% else %}
+<div class="chart-card p-0" style="overflow:hidden"><div class="table-responsive">{{ trade_table(rows) }}</div></div>
+{% endif %}
+{% endblock %}

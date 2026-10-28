@@ -1,0 +1,123 @@
+{% extends "base.html" %}
+{% block title %}Loans with people – Finance Hub{% endblock %}
+{% block page_title %}Loans with people{% endblock %}
+{% block report_menu %}
+<li><a class="dropdown-item" href="{{ url_for('report_people_loans', fmt='xlsx') }}"><i class="bi bi-file-earmark-excel me-2"></i>Excel</a></li>
+<li><a class="dropdown-item" href="{{ url_for('report_people_loans', fmt='pdf') }}"><i class="bi bi-file-earmark-pdf me-2"></i>PDF</a></li>
+{% endblock %}
+{% block head %}
+<style>.mv { font-size:.78rem; border-bottom:1px dashed var(--border); padding:.35rem 0; } .mv:last-child { border-bottom:0; }</style>
+{% endblock %}
+{% block content %}
+<div class="row g-3 mb-3">
+  <div class="col-md-4"><div class="hub-card kpi tone-teal"><div class="lbl">You have lent</div><div class="val">{{ lent|inr }}</div><div class="sub">still to come back</div></div></div>
+  <div class="col-md-4"><div class="hub-card kpi tone-coral"><div class="lbl">You have borrowed</div><div class="val">{{ borrowed|inr }}</div><div class="sub">still to repay</div></div></div>
+  <div class="col-md-4"><div class="hub-card kpi tone-indigo"><div class="lbl">Net</div><div class="val">{{ (lent - borrowed)|inr }}</div><div class="sub">{{ 'others owe you' if lent >= borrowed else 'you owe others' }}</div></div></div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-8">
+    {% for l in loans %}
+    <div class="hub-card mb-3 tone-{{ 'teal' if l.direction == 'given' else 'coral' }} {{ 'opacity-75' if l.status != 'open' }}" id="loan-{{ l.id }}">
+      <div class="card-head">
+        <span class="chip">{{ 'Lent to' if l.direction == 'given' else 'Borrowed from' }}</span><h6>{{ l.person }}</h6>
+        {% if books|length > 1 %}<span class="chip tone-violet">{{ l.book }}</span>{% endif %}
+        {% if l.overdue %}<span class="chip tone-red">overdue since {{ l.due.strftime('%d %b %Y') }}</span>{% elif l.due %}<span class="muted" style="font-size:.74rem">due {{ l.due.strftime('%d %b %Y') }}</span>{% endif %}
+        <div class="more text-end"><div class="num fw-bold">{{ l.outstanding|inr }}</div><div class="muted" style="font-size:.7rem">of {{ l.principal|inr }}{% if l.status != 'open' %} · settled{% endif %}</div></div>
+      </div>
+      {% if l.purpose %}<div class="muted mb-1" style="font-size:.78rem">{{ l.purpose }}{% if l.interest_rate %} · {{ '%g'|format(l.interest_rate) }}% p.a.{% endif %}</div>{% endif %}
+      <div class="bar mb-2"><span style="width:{{ [100 * (l.repaid + l.waived) / (l.principal or 1), 100]|min }}%"></span></div>
+      {% for m in l.moves %}
+      <div class="mv d-flex align-items-center gap-2 flex-wrap">
+        <span class="muted" style="width:70px">{{ m.date|short_date }}</span>
+        <span class="chip {{ 'tone-indigo' if m.kind == 'principal' else ('tone-green' if m.kind == 'repayment' else 'tone-slate') }}">{{ {'principal': 'Given' if l.direction == 'given' else 'Received', 'repayment': 'Repaid', 'interest': 'Interest', 'waived': 'Waived'}[m.kind] }}</span>
+        <b class="num">{{ m.amount|inr }}</b>
+        <span class="muted">{{ m.mode or '' }}{% if m.our_account %} · {{ m.our_account }}{% endif %}{% if m.their_account %} → {{ m.their_bank or '' }} {{ m.their_account }}{% endif %}{% if m.their_ifsc %} ({{ m.their_ifsc }}){% endif %}{% if m.their_upi %} · {{ m.their_upi }}{% endif %}{% if m.reference %} · ref {{ m.reference[:24] }}{% endif %}</span>
+        {% if m.txn_id %}<span class="chip tone-teal" title="Matched with the bank transaction"><i class="bi bi-link-45deg"></i> {{ m.t_acct }}</span>
+        {% elif m.mode not in ('Cash', None) %}<button class="btn btn-link btn-sm p-0" type="button" onclick="findTxn({{ l.id }}, {{ m.id }}, {{ m.amount }}, '{{ m.date }}', '{{ l.direction }}', '{{ m.kind }}', '{{ l.book }}')">find bank entry</button>{% endif %}
+        <form method="post" action="{{ url_for('pl_move', lid=l.id) }}" class="ms-auto" onsubmit="return confirm('Remove this entry?')"><input type="hidden" name="action" value="delete_move"><input type="hidden" name="move" value="{{ m.id }}"><button class="btn btn-link btn-sm p-0 muted"><i class="bi bi-x"></i></button></form>
+      </div>
+      <div id="cand-{{ m.id }}"></div>
+      {% endfor %}
+      {% if l.status == 'open' %}
+      <form method="post" action="{{ url_for('pl_move', lid=l.id) }}" class="row g-2 mt-1 align-items-end">
+        <div class="col-6 col-md-2"><label class="form-label">Entry</label><select name="kind" class="form-select form-select-sm">
+          <option value="repayment">Repaid</option><option value="principal">{{ 'Gave more' if l.direction == 'given' else 'Borrowed more' }}</option>
+          <option value="interest">Interest</option><option value="waived">Waive / write off</option></select></div>
+        <div class="col-6 col-md-2"><label class="form-label">Amount</label><input name="amount" type="number" step="0.01" class="form-control form-control-sm" required></div>
+        <div class="col-6 col-md-2"><label class="form-label">Date</label><input name="date" type="date" value="{{ today.isoformat() }}" class="form-control form-control-sm"></div>
+        <div class="col-6 col-md-2"><label class="form-label">Mode</label><select name="mode" class="form-select form-select-sm">{% for m in MODES %}<option>{{ m }}</option>{% endfor %}</select></div>
+        <div class="col-6 col-md-2"><label class="form-label">Our account</label><select name="our_account" class="form-select form-select-sm"><option value="">—</option>{% for a in accts if a.book == l.book %}<option>{{ a.name }}</option>{% endfor %}</select></div>
+        <div class="col-6 col-md-2"><button class="btn btn-sm btn-primary w-100">Add</button></div>
+        <div class="col-md-4"><input name="their_account" class="form-control form-control-sm" placeholder="Their account no. (if bank transfer)"></div>
+        <div class="col-md-3"><input name="their_ifsc" class="form-control form-control-sm" placeholder="IFSC"></div>
+        <div class="col-md-5"><input name="reference" class="form-control form-control-sm" placeholder="UTR / UPI ref / cheque no."></div>
+      </form>{% endif %}
+      <div class="d-flex gap-2 mt-2">
+        <form method="post" action="{{ url_for('pl_move', lid=l.id) }}"><input type="hidden" name="action" value="{{ 'close' if l.status == 'open' else 'reopen' }}"><button class="btn btn-sm btn-soft">{{ 'Mark settled' if l.status == 'open' else 'Re-open' }}</button></form>
+        <form method="post" action="{{ url_for('pl_move', lid=l.id) }}" onsubmit="return confirm('Delete this loan and all its entries?')"><input type="hidden" name="action" value="delete_loan"><button class="btn btn-sm btn-soft text-danger"><i class="bi bi-trash"></i></button></form>
+      </div>
+    </div>
+    {% else %}
+    <div class="hub-card"><div class="empty"><i class="bi bi-person-lines-fill"></i>No loans recorded. Use the form on the right when you lend to or borrow from someone.</div></div>
+    {% endfor %}
+  </div>
+
+  <div class="col-lg-4">
+    <div class="hub-card mb-3 tone-violet" id="new">
+      <h6><i class="bi bi-plus-circle me-2 t-tone"></i>Record a loan</h6>
+      <form method="post" action="{{ url_for('pl_save') }}" class="row g-2">
+        {% if from_txn %}<input type="hidden" name="txn_id" value="{{ from_txn.id }}">
+          <div class="col-12 soft-box" style="font-size:.78rem">From bank entry: <b>{{ from_txn.account }}</b> {{ from_txn.date|short_date }} · {{ from_txn.amount|inr }}</div>{% endif %}
+        <div class="col-6"><label class="form-label">Direction</label><select name="direction" class="form-select form-select-sm">
+          <option value="given" {{ 'selected' if not from_txn or from_txn.type == 'debit' }}>I lent</option><option value="taken" {{ 'selected' if from_txn and from_txn.type == 'credit' }}>I borrowed</option></select></div>
+        <div class="col-6"><label class="form-label">Book</label><select name="book" class="form-select form-select-sm">{% for b in books %}<option>{{ b }}</option>{% endfor %}</select></div>
+        <div class="col-12"><label class="form-label">Person</label><input name="person" class="form-control form-control-sm" list="dlContacts" required></div>
+        <datalist id="dlContacts">{% for c in contacts %}<option>{{ c.name }}</option>{% endfor %}</datalist>
+        <div class="col-6"><label class="form-label">Amount</label><input name="amount" type="number" step="0.01" class="form-control form-control-sm" required value="{{ from_txn.amount if from_txn else '' }}"></div>
+        <div class="col-6"><label class="form-label">Date</label><input name="start_date" type="date" class="form-control form-control-sm" value="{{ from_txn.date if from_txn else today.isoformat() }}"></div>
+        <div class="col-6"><label class="form-label">Mode</label><select name="mode" class="form-select form-select-sm">{% for m in MODES %}<option>{{ m }}</option>{% endfor %}</select></div>
+        <div class="col-6"><label class="form-label">Our account</label><select name="our_account" class="form-select form-select-sm"><option value="">— cash —</option>
+          {% for a in accts %}<option {{ 'selected' if from_txn and from_txn.account == a.name }}>{{ a.name }}</option>{% endfor %}</select></div>
+        <div class="col-6"><label class="form-label">Repay by</label><input name="due_date" type="date" class="form-control form-control-sm"></div>
+        <div class="col-6"><label class="form-label">Interest % p.a.</label><input name="interest_rate" type="number" step="0.01" class="form-control form-control-sm" placeholder="0"></div>
+        <div class="col-12"><label class="form-label">Purpose</label><input name="purpose" class="form-control form-control-sm"></div>
+        <div class="col-12 small-label mt-2">Their bank details (if paid by transfer)</div>
+        <div class="col-6"><input name="their_bank" class="form-control form-control-sm" placeholder="Bank"></div>
+        <div class="col-6"><input name="their_account" class="form-control form-control-sm" placeholder="Account no."></div>
+        <div class="col-6"><input name="their_ifsc" class="form-control form-control-sm" placeholder="IFSC"></div>
+        <div class="col-6"><input name="their_upi" class="form-control form-control-sm" placeholder="UPI id"></div>
+        <div class="col-6"><input name="phone" class="form-control form-control-sm" placeholder="Phone"></div>
+        <div class="col-6"><input name="reference" class="form-control form-control-sm" placeholder="UTR / ref"></div>
+        <div class="col-12"><button class="btn btn-sm btn-primary w-100">Save</button></div>
+      </form>
+    </div>
+    <div class="hub-card" id="contacts">
+      <h6><i class="bi bi-person-vcard me-2 text-primary"></i>People &amp; their bank details</h6>
+      {% for c in contacts %}
+      <details class="mb-1"><summary style="font-size:.84rem;cursor:pointer">{{ c.name }} <span class="muted" style="font-size:.72rem">{{ c.bank or '' }} {{ ('····' ~ c.account_no[-4:]) if c.account_no else '' }}</span></summary>
+        <form method="post" action="{{ url_for('contact_save') }}" class="row g-1 mt-1"><input type="hidden" name="id" value="{{ c.id }}">
+          {% for k, ph in [('name','Name'), ('phone','Phone'), ('bank','Bank'), ('account_no','Account no.'), ('ifsc','IFSC'), ('upi','UPI id'), ('notes','Notes')] %}
+          <div class="col-6"><input name="{{ k }}" value="{{ c[k] or '' }}" placeholder="{{ ph }}" class="form-control form-control-sm"></div>{% endfor %}
+          <div class="col-6"><button class="btn btn-sm btn-soft w-100">Save</button></div>
+        </form></details>
+      {% else %}<div class="muted" style="font-size:.8rem">People are added when you record a loan.</div>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+async function findTxn(lid, mid, amount, date, direction, kind, book) {
+  const box = document.getElementById('cand-' + mid);
+  const r = await fetch(`{{ url_for('pl_candidates_api') }}?amount=${amount}&date=${date}&direction=${direction}&kind=${kind}&book=${encodeURIComponent(book)}`);
+  const rows = await r.json();
+  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  box.innerHTML = rows.length ? rows.map(t => `<form method="post" action="{{ url_for('pl_move', lid=0) }}" class="d-flex gap-2 align-items-center soft-box my-1" style="font-size:.76rem">
+      <input type="hidden" name="action" value="link"><input type="hidden" name="move" value="${mid}"><input type="hidden" name="txn_id" value="${t.id}">
+      <span>${esc(t.date)} · <b>${esc(t.account)}</b> · ${esc(t.desc)} · ${esc(t.mode)}</span><button class="btn btn-sm btn-primary ms-auto py-0">This one</button></form>`).join('')
+    : '<div class="muted my-1" style="font-size:.76rem">No bank entry with this amount within a week — add the statement first.</div>';
+  box.querySelectorAll('form').forEach(f => f.action = f.getAttribute('action').replace('/0/', '/' + lid + '/'));
+}
+</script>
+{% endblock %}

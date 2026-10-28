@@ -1,0 +1,301 @@
+{% extends "base.html" %}
+{% block title %}Insights – Finance Hub{% endblock %}
+{% block page_title %}Insights{% endblock %}
+
+{% block content %}
+
+<!-- Period Picker -->
+<div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
+  <div class="d-flex align-items-center gap-2 flex-wrap">
+    <a href="/?period=month" class="btn btn-sm {% if period=='month' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      <i class="bi bi-calendar-event me-1"></i>This Month
+    </a>
+    <a href="/?period=fy" class="btn btn-sm {% if period=='fy' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+      <i class="bi bi-calendar-range me-1"></i>Full {{ fy_label }}
+    </a>
+    {% if period == 'month' and avail_months %}
+    <div class="d-flex align-items-center gap-1">
+      <span class="text-muted" style="font-size:.8rem">Jump to:</span>
+      <select class="form-select form-select-sm" style="width:auto;font-size:.8rem;background:var(--navy2);border-color:var(--border);color:var(--text)"
+              onchange="if(this.value) window.location='/?period=month&m='+this.value">
+        <option value="">— choose month —</option>
+        {% for m in avail_months %}
+        <option value="{{ m }}">{{ m }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    {% endif %}
+  </div>
+  <div class="d-flex align-items-center gap-2">
+    <span class="badge {% if period=='month' %}bg-primary{% else %}bg-secondary{% endif %} px-3 py-2" style="font-size:.8rem">
+      <i class="bi bi-calendar3 me-1"></i>{{ period_label }}
+    </span>
+  </div>
+</div>
+
+<!-- No-data notice for current month -->
+{% if period == 'month' and txn_count == 0 %}
+<div class="alert alert-warning d-flex align-items-start gap-3 mb-4" style="border-radius:12px">
+  <i class="bi bi-exclamation-triangle-fill fs-5 mt-1"></i>
+  <div>
+    <strong>No transactions for {{ period_label }}</strong><br>
+    <span style="font-size:.85rem">
+      Add statements on the <a href="{{ url_for('import_page') }}" class="alert-link">Add Statements</a> page,
+      or <a href="/?period=fy" class="alert-link">view the full {{ fy_label }}</a>.
+    </span>
+  </div>
+</div>
+{% elif 'No data yet' in period_label %}
+<div class="alert alert-info d-flex align-items-start gap-3 mb-4" style="border-radius:12px;font-size:.85rem">
+  <i class="bi bi-info-circle-fill fs-5 mt-1"></i>
+  <div>
+    <strong>Showing latest available month</strong> — no data found for the current month.
+    Add new statement files via <a href="{{ url_for('import_page') }}" class="alert-link">Add Statements</a>.
+  </div>
+</div>
+{% endif %}
+
+<!-- Stat Cards -->
+<div class="row g-3 mb-4">
+  {% set cards = [
+      ('Income', d.income, 'text-success', 'bi-arrow-down-circle', 'rgba(34,197,94,.15)', 'Salary, pension, dividends, interest, refunds', 'income'),
+      ('Expenses', d.expense, 'text-danger', 'bi-arrow-up-circle', 'rgba(239,68,68,.15)', 'Real spending — refunds deducted', 'expense'),
+      ('Saved', d.saved, 'text-success' if d.saved >= 0 else 'text-danger', 'bi-piggy-bank', 'rgba(245,158,11,.15)', 'Income − Expenses', ''),
+      ('Invested', d.investment, 'text-info', 'bi-graph-up-arrow', 'rgba(59,130,246,.15)', 'Shares, deposits, home & business', 'investment'),
+  ] %}
+  {% for lbl, val, cls, icon, bg, note, kind in cards %}
+  <div class="col-6 col-lg-3">
+    <a class="text-decoration-none" href="{{ url_for('breakdown', kind=kind) if kind else url_for('breakdown') }}">
+    <div class="stat-card">
+      <div class="d-flex justify-content-between align-items-start">
+        <div>
+          <div class="lbl mb-1">{{ lbl }}</div>
+          <div class="val {{ cls }}">{{ val|inr }}</div>
+        </div>
+        <div class="icon" style="background:{{ bg }}"><i class="bi {{ icon }} {{ cls }}"></i></div>
+      </div>
+      <div class="chg text-muted mt-2">{{ note }}</div>
+    </div>
+    </a>
+  </div>
+  {% endfor %}
+</div>
+<div class="text-muted mb-3" style="font-size:.78rem">
+  <i class="bi bi-info-circle me-1"></i>Card bill payments, transfers between your own accounts, loan principal and ATM cash are
+  <strong>Transfers</strong> — not counted as income or expense.
+  {{ d.txn_count }} transactions in {{ period_label }}{% if d.review %} ·
+  <a href="{{ url_for('transactions', review=1, start='2000-01-01', end='2099-12-31') }}" class="text-warning">{{ d.review }} to review</a>{% endif %}
+  {% if d.portfolio %} · <a href="{{ url_for('inv_portfolio') }}">Share portfolio {{ d.portfolio.value|inr }} ({{ d.portfolio.stocks }} stocks,
+    P&amp;L <span class="{{ 'text-success' if d.portfolio.pnl >= 0 else 'text-danger' }}">{{ d.portfolio.pnl|inr }}</span>)</a>{% endif %}
+  · <a href="{{ url_for('planner') }}">Wealth planner</a>
+</div>
+
+<!-- Charts row -->
+<div class="row g-3 mb-4">
+  <div class="col-lg-7">
+    <div class="chart-card h-100">
+      <div class="d-flex align-items-center justify-content-between mb-2">
+        <h6 class="mb-0"><i class="bi bi-bar-chart me-2 text-primary"></i>Monthly Income vs Expenses</h6>
+        <span class="text-muted" style="font-size:.72rem">Full {{ fy_label }} trend</span>
+      </div>
+      <canvas id="barChart" style="max-height:260px"></canvas>
+    </div>
+  </div>
+  <div class="col-lg-5">
+    <div class="chart-card h-100">
+      <h6><i class="bi bi-pie-chart me-2 text-primary"></i>Expenses by Head
+        {% if period == 'month' %}<small class="text-muted fw-normal">({{ period_label }})</small>{% endif %}
+      </h6>
+      {% if cat_values %}
+      <canvas id="donutChart" style="max-height:260px"></canvas>
+      {% else %}
+      <div class="d-flex align-items-center justify-content-center h-75 text-muted" style="font-size:.85rem">
+        <i class="bi bi-pie-chart me-2"></i> No spend data for this period
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Bottom row -->
+<div class="row g-3">
+  <!-- Account breakdown -->
+  <div class="col-lg-5">
+    <div class="chart-card">
+      <h6><i class="bi bi-credit-card me-2 text-primary"></i>Expenses by Account</h6>
+      {% if d.accounts %}
+      <div class="table-responsive">
+        <table class="table table-sm table-dark mb-0">
+          <thead><tr><th>Account</th><th class="text-end">Spent</th><th class="text-end">Txns</th></tr></thead>
+          <tbody>
+            {% for row in d.accounts %}
+            <tr>
+              <td>
+                <span class="text-truncate d-inline-block" style="max-width:160px" title="{{ row[0] }}">{{ row[0] }}</span>
+              </td>
+              <td class="text-end amount-debit">{{ row[1]|inr }}</td>
+              <td class="text-end text-muted">{{ row[2] }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-muted text-center py-4" style="font-size:.85rem">
+        <i class="bi bi-credit-card me-2"></i>No data for this period
+      </div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Recent transactions -->
+  <div class="col-lg-7">
+    <div class="chart-card">
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <h6 class="mb-0"><i class="bi bi-clock me-2 text-primary"></i>Recent Transactions</h6>
+        <a href="{{ url_for('transactions') }}" class="btn btn-sm btn-outline-primary" style="font-size:.75rem">View All</a>
+      </div>
+      {% if d.recent %}
+      <div class="table-responsive">
+        <table class="table table-sm table-dark mb-0">
+          <thead>
+            <tr><th>Date</th><th>Name</th><th>Category</th><th class="text-end">Amount</th></tr>
+          </thead>
+          <tbody>
+            {% for r in d.recent %}
+            <tr>
+              <td style="white-space:nowrap">{{ r[0]|short_date }}</td>
+              <td>
+                <span class="text-truncate d-inline-block" style="max-width:180px" title="{{ r[1] }}">{{ r[1] }}</span>
+                <br><small class="text-muted" style="font-size:.7rem">{{ r[5] }}</small>
+              </td>
+              <td><span class="badge-cat" style="background:rgba(59,130,246,.2);color:#93c5fd">{{ r[4] }}</span></td>
+              <td class="text-end {% if r[3]=='debit' %}amount-debit{% else %}amount-credit{% endif %}">
+                {% if r[3]=='credit' %}+{% endif %}{{ r[2]|inr }}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      {% else %}
+      <div class="text-muted text-center py-4" style="font-size:.85rem">
+        <i class="bi bi-receipt me-2"></i>No transactions for this period.<br>
+        <a href="{{ url_for('import_page') }}" class="text-primary" style="font-size:.8rem">Add statements to see your data →</a>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+</div>
+
+<!-- Top Merchants -->
+{% if d.payees %}
+<div class="row g-3 mt-0">
+  <div class="col-12">
+    <div class="chart-card">
+      <h6><i class="bi bi-shop me-2 text-primary"></i>Top Payees by Spend</h6>
+      <div class="row g-2">
+        {% for m in d.payees %}
+        <div class="col-6 col-md-3">
+          <div class="d-flex justify-content-between align-items-center p-2 rounded" style="background:var(--tint)">
+            <span class="text-truncate me-2" style="font-size:.82rem;max-width:120px" title="{{ m[0] }}">{{ m[0] }}</span>
+            <span class="amount-debit" style="font-size:.82rem;white-space:nowrap">{{ m[1]|inr }}</span>
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const CHART_LABELS  = {{ chart_labels|safe }};
+const CHART_DEBIT   = {{ chart_expense|safe }};
+const CHART_CREDIT  = {{ chart_income|safe }};
+const CAT_LABELS    = {{ cat_labels|safe }};
+const CAT_VALUES    = {{ cat_values|safe }};
+const CUR_PERIOD    = "{{ period }}";
+const CUR_MONTH     = "{{ latest_data_month }}";
+
+// ── Bar chart ─────────────────────────────────────────────────────────────────
+if (CHART_LABELS.length) {
+  // Highlight the current period month in the bar chart
+  const highlightIdx = CUR_PERIOD === 'month' ?
+    CHART_LABELS.findIndex(l => l.includes(CUR_MONTH.slice(0,7).replace('-', "'"))) : -1;
+
+  new Chart(document.getElementById('barChart'), {
+    type: 'bar',
+    data: {
+      labels: CHART_LABELS,
+      datasets: [
+        {
+          label: 'Expenses',
+          data: CHART_DEBIT,
+          backgroundColor: CHART_DEBIT.map((_, i) =>
+            i === highlightIdx ? 'rgba(239,68,68,1)' : 'rgba(239,68,68,.55)'
+          ),
+          borderRadius: 4
+        },
+        {
+          label: 'Income',
+          data: CHART_CREDIT,
+          backgroundColor: CHART_CREDIT.map((_, i) =>
+            i === highlightIdx ? 'rgba(34,197,94,1)' : 'rgba(34,197,94,.55)'
+          ),
+          borderRadius: 4
+        },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: 'top' } },
+      scales: {
+        x: { grid: { color: 'var(--tint)' } },
+        y: {
+          grid: { color: 'var(--tint)' },
+          ticks: { callback: v => '₹' + (v>=100000 ? (v/100000).toFixed(1)+'L' : v>=1000 ? (v/1000).toFixed(0)+'K' : v) }
+        }
+      }
+    }
+  });
+} else {
+  document.getElementById('barChart').parentElement.innerHTML += '<p class="text-muted text-center py-4" style="font-size:.85rem">No data yet — import statements to see the chart</p>';
+  document.getElementById('barChart').style.display = 'none';
+}
+
+// ── Donut chart ───────────────────────────────────────────────────────────────
+const PALETTE = [
+  '#3b82f6','#ef4444','#22c55e','#f59e0b','#8b5cf6',
+  '#ec4899','#14b8a6','#f97316','#06b6d4','#84cc16',
+];
+if (CAT_LABELS.length && document.getElementById('donutChart')) {
+  new Chart(document.getElementById('donutChart'), {
+    type: 'doughnut',
+    data: {
+      labels: CAT_LABELS,
+      datasets: [{ data: CAT_VALUES, backgroundColor: PALETTE, borderWidth: 0, hoverOffset: 6 }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      cutout: '62%',
+      plugins: {
+        legend: { position: 'right', labels: { boxWidth: 12, padding: 8, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const v = ctx.parsed;
+              const total = ctx.dataset.data.reduce((a,b) => a+b, 0);
+              const pct = ((v/total)*100).toFixed(1);
+              return ` ₹${v>=100000?(v/100000).toFixed(1)+'L':v.toLocaleString('en-IN')} (${pct}%)`;
+            }
+          }
+        }
+      }
+    }
+  });
+}
+</script>
+{% endblock %}

@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}Director's account – Finance Hub{% endblock %}
+{% block page_title %}Director’s account · {{ book }}{% endblock %}
+{% block report_menu %}
+<li><a class="dropdown-item" href="{{ url_for('report_director', fmt='xlsx', book=book, start=start or None, end=end or None) }}"><i class="bi bi-file-earmark-excel me-2"></i>Excel</a></li>
+<li><a class="dropdown-item" href="{{ url_for('report_director', fmt='pdf', book=book, start=start or None, end=end or None) }}"><i class="bi bi-file-earmark-pdf me-2"></i>PDF</a></li>
+{% endblock %}
+{% block content %}
+<form class="d-flex flex-wrap gap-2 align-items-end mb-3">
+  {% if books|length > 1 %}<div><label class="form-label">Company</label><select name="book" class="form-select form-select-sm">{% for b in books %}<option {{ 'selected' if b == book }}>{{ b }}</option>{% endfor %}</select></div>{% else %}<input type="hidden" name="book" value="{{ book }}">{% endif %}
+  <div><label class="form-label">From</label><input type="date" name="start" value="{{ start }}" class="form-control form-control-sm"></div>
+  <div><label class="form-label">To</label><input type="date" name="end" value="{{ end }}" class="form-control form-control-sm"></div>
+  <button class="btn btn-sm btn-primary">Show</button>
+</form>
+<div class="row g-3 mb-3">
+  <div class="col-md-4"><div class="hub-card kpi hero tone-indigo"><div class="lbl">Balance</div><div class="val">{{ closing|abs|inr }}</div>
+    <div class="sub">{{ (book ~ ' owes you') if closing >= 0 else ('you owe ' ~ book) }}</div></div></div>
+  <div class="col-md-4"><div class="hub-card kpi tone-teal"><div class="lbl">You put in</div><div class="val">{{ rows|selectattr('effect', 'gt', 0)|sum(attribute='effect')|inr }}</div><div class="sub">capital, loans, company expenses you paid</div></div></div>
+  <div class="col-md-4"><div class="hub-card kpi tone-coral"><div class="lbl">You took out</div><div class="val">{{ (0 - rows|selectattr('effect', 'lt', 0)|sum(attribute='effect'))|inr }}</div><div class="sub">drawings, repayments, card bills paid for you</div></div></div>
+</div>
+<div class="hub-card p-0" style="overflow:hidden">
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Date</th><th>What</th><th>Detail</th><th>From</th><th>To</th><th class="text-end">Amount</th><th class="text-end">Balance</th></tr></thead>
+    <tbody>
+    {% if start %}<tr><td colspan="6" class="muted">Opening balance</td><td class="text-end num">{{ opening|inr }}</td></tr>{% endif %}
+    {% for r in rows %}
+      <tr><td>{{ r.date|short_date }}</td><td><span class="chip {{ 'tone-teal' if r.effect > 0 else ('tone-coral' if r.effect < 0 else 'tone-slate') }}">{{ r.what }}</span></td>
+        <td class="text-truncate" style="max-width:260px">{{ r.detail }}</td><td style="font-size:.8rem">{{ r['from'] }}</td><td style="font-size:.8rem">{{ r.to }}</td>
+        <td class="text-end num">{{ r.amount|inr }}</td><td class="text-end num fw-semibold">{{ r.balance|inr }}</td></tr>
+    {% else %}<tr><td colspan="7"><div class="empty"><i class="bi bi-briefcase"></i>No company ↔ you movements yet. Confirm them on
+      <a href="{{ url_for('links_page') }}">Transfers &amp; links</a>, or tag company expenses you paid personally with the book “{{ book }}”.</div></td></tr>{% endfor %}
+    </tbody></table></div>
+</div>
+{% endblock %}

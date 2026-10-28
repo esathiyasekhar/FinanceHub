@@ -1,0 +1,181 @@
+{% extends "base.html" %}
+{% block title %}Breakdown – Finance Hub{% endblock %}
+{% block page_title %}Breakdown — where the money comes from and goes{% endblock %}
+
+{% block head %}
+<style>
+.filter-bar { background:var(--card-bg); border:1px solid var(--border); border-radius:12px; padding:1rem 1.25rem; margin-bottom:1rem; }
+.filter-bar label { font-size:.72rem; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+.tree td { font-size:.84rem; }
+.tree tr.l1 td { font-weight:700; font-size:.92rem; background:var(--tint); }
+.tree tr.l2 td { font-weight:600; }
+.tree tr.l4 td { color:var(--text-soft); font-size:.8rem; }
+.tree .tog { cursor:pointer; width:1.1rem; height:1em; display:inline-block; color:var(--muted); }
+.bar { height:6px; border-radius:3px; background:rgba(148,163,184,.25); position:relative; min-width:60px; }
+.bar > span { position:absolute; left:0; top:0; bottom:0; border-radius:3px; }
+.mx td, .mx th { font-size:.76rem; white-space:nowrap; }
+.preset { font-size:.72rem; }
+.kpi { font-size:1.25rem; font-weight:700; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="filter-bar">
+  <div class="mb-2 d-flex flex-wrap gap-1">
+    {% for lbl, s, e in presets %}
+      <a class="btn btn-sm preset {% if f.start==s and f.end==e %}btn-primary{% else %}btn-outline-secondary{% endif %}"
+         href="{{ url_for('breakdown', **dict(qs, start=s, end=e)) }}">{{ lbl }}</a>
+    {% endfor %}
+    <a class="btn btn-sm btn-outline-success ms-auto" href="{{ url_for('breakdown_export', **qs) }}"><i class="bi bi-file-earmark-excel me-1"></i>Export to Excel</a>
+  </div>
+  <form method="get" class="row g-2 align-items-end">
+    <div class="col-6 col-md-2"><label>From</label><input type="date" name="start" class="form-control form-control-sm" value="{{ f.start }}"></div>
+    <div class="col-6 col-md-2"><label>To</label><input type="date" name="end" class="form-control form-control-sm" value="{{ f.end }}"></div>
+    <div class="col-6 col-md-2"><label>Entity</label>
+      <select name="entity" class="form-select form-select-sm"><option value="">All</option>
+        {% for e in entities %}<option {% if e==f.entity %}selected{% endif %}>{{ e }}</option>{% endfor %}</select></div>
+    <div class="col-6 col-md-2"><label>Person</label>
+      <select name="person" class="form-select form-select-sm"><option value="">Everyone</option>
+        {% for p in people %}<option {% if p==f.person %}selected{% endif %}>{{ p }}</option>{% endfor %}</select></div>
+    <div class="col-6 col-md-2"><label>Account</label>
+      <select name="account" class="form-select form-select-sm"><option value="">All</option>
+        {% for a in accounts %}<option {% if a==f.account %}selected{% endif %}>{{ a }}</option>{% endfor %}</select></div>
+    <div class="col-6 col-md-1"><label>Show</label>
+      <select name="kind" class="form-select form-select-sm"><option value="">All</option>
+        {% for k, l in kind_label.items() %}<option value="{{ k }}" {% if f.kind==k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <input type="hidden" name="depth" value="{{ depth }}">
+    <div class="col-12 col-md-1"><button class="btn btn-primary btn-sm w-100">Apply</button></div>
+  </form>
+</div>
+
+<div class="row g-3 mb-3">
+  {% for k, lbl, cls in [('income','Income','text-success'), ('expense','Expenses','text-danger'), (None,'Saved',''), ('investment','Invested','text-info')] %}
+  <div class="col-6 col-lg-3"><div class="stat-card">
+    <div class="lbl">{{ lbl }}</div>
+    {% if k %}<div class="kpi {{ cls }}">{{ totals[k]|inr }}</div>
+    {% else %}{% set sv = totals.income - totals.expense %}<div class="kpi {{ 'text-success' if sv >= 0 else 'text-danger' }}">{{ sv|inr }}</div>{% endif %}
+    <div class="chg text-muted" style="font-size:.72rem">{{ f.start|short_date }} – {{ f.end|short_date }}{% if f.entity %} · {{ f.entity }}{% endif %}{% if f.person %} · {{ f.person }}{% endif %}</div>
+  </div></div>
+  {% endfor %}
+</div>
+{% if review[0] %}
+<div class="alert alert-warning py-2" style="font-size:.82rem">
+  <i class="bi bi-question-circle me-1"></i>{{ review[0] }} transactions ({{ review[1]|inr }}) are still <strong>To review</strong> —
+  <a class="alert-link" href="{{ url_for('transactions', **dict(qs, review=1)) }}">name and categorise them</a> to complete the picture.
+</div>
+{% endif %}
+
+<div class="row g-3">
+  <div class="col-xl-8">
+    <div class="chart-card">
+      <div class="d-flex align-items-center mb-2 gap-2 flex-wrap">
+        <h6 class="mb-0"><i class="bi bi-diagram-3 me-2 text-primary"></i>Type › Head › Sub-head › Item</h6>
+        <div class="btn-group btn-group-sm ms-auto">
+          {% for d, l in [(1,'Type'),(2,'Head'),(3,'Sub-head'),(4,'Item')] %}
+          <button class="btn btn-outline-secondary depth {% if depth==d %}active{% endif %}" data-d="{{ d }}">{{ l }}</button>
+          {% endfor %}
+        </div>
+      </div>
+      <div class="table-responsive">
+      <table class="table table-dark table-sm mb-0 tree">
+        <thead><tr><th>Category</th><th class="text-end">Txns</th><th class="text-end">Out</th><th class="text-end">In</th>
+          <th class="text-end">Net</th><th style="width:110px">Share</th></tr></thead>
+        <tbody>
+        {% for ln in lines %}
+          <tr class="l{{ ln.level }}" data-id="{{ ln.id }}" data-parent="{{ ln.parent_id or '' }}" data-level="{{ ln.level }}">
+            <td style="padding-left:{{ (ln.level-1)*1.3 + 0.4 }}rem">
+              <span class="tog">{% if ln.has_children %}<i class="bi bi-caret-right-fill"></i>{% endif %}</span>
+              <a href="{{ url_for('transactions', **dict(qs, cat=ln.id)) }}" class="text-reset text-decoration-none">{{ ln.name }}</a>
+            </td>
+            <td class="text-end text-muted">{{ ln.n }}</td>
+            <td class="text-end">{{ '{:,.0f}'.format(ln.debit) if ln.debit else '' }}</td>
+            <td class="text-end">{{ '{:,.0f}'.format(ln.credit) if ln.credit else '' }}</td>
+            <td class="text-end fw-semibold" style="color:{{ kind_color[ln.kind] }}">{{ '{:,.0f}'.format(ln.net) }}</td>
+            <td>{% if ln.level > 1 and ln.kind != 'transfer' %}
+              <div class="bar" title="{{ '%.1f'|format(ln.pct) }}% of {{ kind_label[ln.kind] }}">
+                <span style="width:{{ [[ln.pct,0]|max,100]|min }}%;background:{{ kind_color[ln.kind] }}"></span></div>
+              {% endif %}</td>
+          </tr>
+        {% else %}
+          <tr><td colspan="6" class="text-center text-muted py-4">No transactions in this period.</td></tr>
+        {% endfor %}
+        </tbody>
+      </table>
+      </div>
+      <div class="text-muted mt-2" style="font-size:.72rem">
+        Net: Expenses &amp; Investments = money out − refunds · Income = money in − reversals · Transfers = in − out
+        (card bills, own accounts, loan principal and ATM cash are kept out of income and expenses). Click a name to see its transactions.
+      </div>
+    </div>
+  </div>
+
+  <div class="col-xl-4">
+    {% for title, rows, dim in [('By entity', entities_t, 'entity'), ('By person', people_t, 'person'), ('By account', accounts_t, 'account')] %}
+    <div class="chart-card mb-3">
+      <h6><i class="bi bi-{{ 'building' if dim=='entity' else ('people' if dim=='person' else 'credit-card') }} me-2 text-primary"></i>{{ title }}</h6>
+      <table class="table table-dark table-sm mb-0">
+        <thead><tr><th></th><th class="text-end">Income</th><th class="text-end">Expenses</th>{% if dim!='account' %}<th class="text-end">Invested</th>{% endif %}</tr></thead>
+        <tbody>
+        {% for r in rows %}{% if r.income or r.expense or r.investment %}
+          <tr><td><a class="text-reset" href="{{ url_for('breakdown', **dict(qs, **{dim: r.name})) }}">{{ r.name }}</a></td>
+            <td class="text-end amount-credit">{{ r.income|inr if r.income else '' }}</td>
+            <td class="text-end amount-debit">{{ r.expense|inr if r.expense else '' }}</td>
+            {% if dim!='account' %}<td class="text-end text-info">{{ r.investment|inr if r.investment else '' }}</td>{% endif %}</tr>
+        {% endif %}{% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="chart-card mt-3">
+  <form method="get" class="d-flex align-items-center gap-2 flex-wrap mb-2">
+    {% for k, v in qs.items() %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+    <h6 class="mb-0 me-2"><i class="bi bi-calendar3 me-2 text-primary"></i>Month by month</h6>
+    <select name="mkind" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+      {% for k, l in kind_label.items() %}<option value="{{ k }}" {% if mkind==k %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+    <select name="mlevel" class="form-select form-select-sm" style="width:auto" onchange="this.form.submit()">
+      {% for d, l in [(2,'by Head'),(3,'by Sub-head'),(4,'by Item')] %}<option value="{{ d }}" {% if mlevel==d %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+  </form>
+  <div class="table-responsive">
+  <table class="table table-dark table-sm mb-0 mx">
+    <thead><tr><th>{{ ['','','Head','Sub-head','Item'][mlevel] }}</th>{% for m in months %}<th class="text-end">{{ m|month_name }}</th>{% endfor %}<th class="text-end">Total</th></tr></thead>
+    <tbody>
+    {% for r in matrix %}
+      <tr><td title="{{ r.path }}"><a class="text-reset" href="{{ url_for('transactions', **dict(qs, cat=r.id)) }}">{{ r.name }}</a>
+        {% if mlevel > 2 %}<small class="text-muted ms-1">{{ r.path.split(' › ')[1:]|join(' › ') }}</small>{% endif %}</td>
+        {% for v in r.vals %}<td class="text-end">{{ '{:,.0f}'.format(v) if v else '·' }}</td>{% endfor %}
+        <td class="text-end fw-semibold">{{ '{:,.0f}'.format(r.total) }}</td></tr>
+    {% endfor %}
+    {% if matrix %}<tr style="border-top:2px solid var(--border)"><td class="fw-bold">Total</td>
+      {% for v in mtot %}<td class="text-end fw-bold">{{ '{:,.0f}'.format(v) }}</td>{% endfor %}
+      <td class="text-end fw-bold">{{ '{:,.0f}'.format(mtot|sum) }}</td></tr>{% endif %}
+    </tbody>
+  </table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const rows = [...document.querySelectorAll('.tree tbody tr[data-id]')];
+const kids = {};
+rows.forEach(r => { (kids[r.dataset.parent] = kids[r.dataset.parent] || []).push(r); });
+function setOpen(r, open) {
+  r.dataset.open = open ? '1' : '';
+  const i = r.querySelector('.tog i'); if (i) i.className = 'bi bi-caret-' + (open ? 'down' : 'right') + '-fill';
+  (kids[r.dataset.id] || []).forEach(k => { k.style.display = open ? '' : 'none'; if (!open) setOpen(k, false); });
+}
+function depth(d) {
+  rows.forEach(r => { const l = +r.dataset.level; r.style.display = l <= d ? '' : 'none'; });
+  rows.forEach(r => { const l = +r.dataset.level; r.dataset.open = l < d ? '1' : '';
+    const i = r.querySelector('.tog i'); if (i) i.className = 'bi bi-caret-' + (l < d ? 'down' : 'right') + '-fill'; });
+  document.querySelectorAll('.depth').forEach(b => b.classList.toggle('active', +b.dataset.d === d));
+  const u = new URL(location); u.searchParams.set('depth', d); history.replaceState(null, '', u);
+}
+rows.forEach(r => r.querySelector('.tog').addEventListener('click', () => setOpen(r, !r.dataset.open)));
+document.querySelectorAll('.depth').forEach(b => b.addEventListener('click', () => depth(+b.dataset.d)));
+depth({{ depth }});
+</script>
+{% endblock %}

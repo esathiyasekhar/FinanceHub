@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block title %}Dues calendar – Finance Hub{% endblock %}
+{% block page_title %}Dues calendar{% endblock %}
+
+{% block head %}
+<style>
+  .cal { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:6px; }
+  .cal .hd { font-size:.68rem; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:var(--muted); text-align:center; padding:.2rem 0; }
+  .cal .day { min-width:0; overflow:hidden; min-height:104px; border:1px solid var(--border); border-radius:12px; padding:.35rem .4rem; background:var(--card-bg); }
+  .cal .day.out { opacity:.4; }
+  .cal .day.today { border-color:var(--indigo); box-shadow:0 0 0 2px rgba(99,102,241,.25); }
+  .cal .day .n { font-size:.76rem; font-weight:700; color:var(--muted); }
+  .cal .day.today .n { color:var(--indigo); }
+  .cal .ev { display:block; font-size:.68rem; line-height:1.25; padding:.15rem .35rem; border-radius:6px; margin-top:3px; text-decoration:none;
+             background:color-mix(in srgb, var(--tone) 16%, transparent); color:var(--text); overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+  .cal .ev b { font-variant-numeric:tabular-nums; }
+  .k-card { --tone:var(--coral); } .k-loan { --tone:var(--amber); } .k-emi { --tone:var(--violet); } .k-recurring { --tone:var(--blue); }
+  .k-deposit { --tone:var(--teal); } .st-paid { opacity:.55; text-decoration:line-through !important; } .st-overdue { --tone:var(--red); } .st-payment-not-seen-yet { --tone:var(--amber); }
+  @media (max-width: 900px) { .cal { gap:3px; } .cal .day { min-height:64px; padding:.2rem; } .cal .ev span.lbl { display:none; } .cal .ev { padding:.1rem .2rem; font-size:.6rem; } }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="row g-3">
+  <div class="col-xl-8">
+    <div class="hub-card">
+      <div class="card-head">
+        <a href="{{ url_for('dues_page', m=prev_m) }}" class="btn btn-sm btn-soft"><i class="bi bi-chevron-left"></i></a>
+        <h6 class="mx-2">{{ month_label }}</h6>
+        <a href="{{ url_for('dues_page', m=next_m) }}" class="btn btn-sm btn-soft"><i class="bi bi-chevron-right"></i></a>
+        {% if sel_m != this_m %}<a href="{{ url_for('dues_page') }}" class="btn btn-sm btn-soft ms-2">Today</a>{% endif %}
+        <div class="more d-flex gap-2 flex-wrap" style="font-size:.7rem">
+          <span class="chip k-card">Card bill</span><span class="chip k-loan">Loan</span><span class="chip k-emi">EMI</span>
+          <span class="chip k-recurring">Recurring</span><span class="chip k-deposit">Maturity</span>
+        </div>
+      </div>
+      <div class="cal">
+        {% for d in ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'] %}<div class="hd">{{ d }}</div>{% endfor %}
+        {% for w in weeks %}{% for c in w %}
+          <div class="day {{ '' if c.in_month else 'out' }} {{ 'today' if c.date == today }}">
+            <div class="n">{{ c.date.day }}</div>
+            {% for e in c.events %}
+              <a class="ev k-{{ e.kind }} st-{{ e.status|replace(' ', '-') }}" href="{{ url_for('account_detail', acc_id=e.account_id) if e.account_id else '#' }}"
+                 title="{{ e.title }} · {{ e.status }}{{ ' · ' ~ (e.amount|inr) if e.amount is not none }}">
+                <span class="lbl">{{ e.title }}</span> <b>{{ (e.amount|inr) if e.amount is not none else '' }}</b></a>
+            {% endfor %}
+          </div>
+        {% endfor %}{% endfor %}
+      </div>
+      <div class="muted mt-2" style="font-size:.72rem"><i class="bi bi-info-circle me-1"></i>EMIs on credit cards are part of the card bill — they are shown for reference and not counted twice in the cash needed.</div>
+    </div>
+  </div>
+  <div class="col-xl-4">
+    <div class="hub-card mb-3 {{ 'tone-red' if cash.gap < 0 else 'tone-teal' }}">
+      <h6><i class="bi bi-droplet-half me-2 t-tone"></i>Next 30 days</h6>
+      <div class="d-flex justify-content-between" style="font-size:.84rem"><span class="muted">To pay from banks</span><b class="num">{{ cash.need|inr }}</b></div>
+      <div class="d-flex justify-content-between" style="font-size:.84rem"><span class="muted">In bank accounts{% if cash.as_of %} <span style="font-size:.7rem">(as on {{ cash.as_of|short_date }})</span>{% endif %}</span><b class="num">{{ cash.have|inr }}</b></div>
+      <div class="bar my-2"><span style="width:{{ cash.pct }}%"></span></div>
+      <div style="font-size:.8rem" class="{{ 'text-danger' if cash.gap < 0 else 'text-success' }} fw-semibold">
+        {{ ('Short by ' ~ ((-cash.gap)|inr)) if cash.gap < 0 else ((cash.gap|inr) ~ ' spare') }}</div>
+    </div>
+    <div class="hub-card">
+      <h6><i class="bi bi-list-check me-2 text-primary"></i>Upcoming</h6>
+      {% for e in upcoming %}
+      <div class="list-row k-{{ e.kind }}">
+        <span class="ri"><i class="bi {{ e.icon }}"></i></span>
+        <div class="min-w-0"><div style="font-size:.84rem;font-weight:600" class="text-truncate">{{ e.title }}</div>
+          <div class="muted" style="font-size:.72rem">{{ e.date.strftime('%a %d %b') }} · {{ e.status }}{% if e.min %} · min {{ e.min|inr }}{% endif %}</div></div>
+        <b class="ms-auto num {{ 'amount-credit' if e.inflow else ('' if e.cash else 'muted') }}">{{ e.amount|inr if e.amount is not none else '—' }}</b>
+      </div>
+      {% else %}<div class="empty"><i class="bi bi-calendar-check"></i>Nothing due in the next 30 days.</div>{% endfor %}
+    </div>
+  </div>
+</div>
+{% endblock %}
