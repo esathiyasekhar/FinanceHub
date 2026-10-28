@@ -7,7 +7,7 @@ from pathlib import Path
 
 HUB = Path(__file__).resolve().parent.parent
 IGNORE = shutil.ignore_patterns('__pycache__', '.git', '.venv', 'data', 'users.json', 'uploads', 'backups', 'logs', 'dist',
-                                'finance.db*', 'tests')
+                                'finance.db*', 'tests', 'financehub.json')
 
 
 def fresh(name):

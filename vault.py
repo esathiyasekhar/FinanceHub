@@ -116,6 +116,17 @@ class Conn:
         return getattr(self._con, name)
 
 
+def _locked(fn):
+    """users.json is read, changed and written back as one step (requests and the background thread both use it)."""
+    import functools
+
+    @functools.wraps(fn)
+    def inner(self, *a, **k):
+        with self.lock:
+            return fn(self, *a, **k)
+    return inner
+
+
 class Vault:
     def __init__(self, base_dir: Path):
         self.base = Path(base_dir)
@@ -268,14 +279,136 @@ class Vault:
         except InvalidTag:
             return None
 
+    @_locked
     def setup(self, username, password, full_name=''):
         """First run: the first user (administrator) and their encrypted database."""
         doc = self.users_doc()
         doc['users'] = {}
+        doc.pop('escrow', None)
         dek = self._new_user(doc, username, password, 'admin', full_name)
+        self._escrow_init(doc, username, dek)
         self.save_users(doc)
         self._open(dek, username)
         return self.new_recovery()
+
+    # ── 1.7: administrator password reset (key escrow) ──────────────────────
+    # An install-wide RSA key pair: every user's data key is also stored encrypted with its PUBLIC key (escrow_dek),
+    # and the PRIVATE key is kept only wrapped with each administrator's own data key (escrow_key). So an administrator —
+    # and nobody else — can give a user a new password without knowing the old one. Users see this on Users & security.
+    def _escrow_init(self, doc, admin, dek):
+        from cryptography.hazmat.primitives import serialization
+        from cryptography.hazmat.primitives.asymmetric import rsa
+        priv = rsa.generate_private_key(public_exponent=65537, key_size=3072)
+        pem = priv.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+        pub = priv.public_key().public_bytes(serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo)
+        doc['escrow'] = {'public': pub.decode(), 'created': datetime.now().isoformat(timespec='seconds')}
+        doc['users'][admin]['escrow_key'] = wrap(dek, pem, b'escrow')
+        for name, u in doc['users'].items():
+            u.pop('escrow_dek', None)
+        doc['users'][admin]['escrow_dek'] = self._escrow_wrap(doc, dek)
+
+    @staticmethod
+    def _escrow_wrap(doc, dek):
+        from cryptography.hazmat.primitives import hashes, serialization
+        from cryptography.hazmat.primitives.asymmetric import padding
+        pub = serialization.load_pem_public_key(doc['escrow']['public'].encode())
+        return _b64(pub.encrypt(dek, padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=b'FinanceHub')))
+
+    def _escrow_private(self, doc):
+        """The escrow private key, opened with the logged-in administrator's data key."""
+        from cryptography.hazmat.primitives import serialization
+        u = doc['users'].get(self.user or '', {})
+        if u.get('role') != 'admin' or not u.get('escrow_key') or not self.unlocked:
+            raise ValueError('only an administrator with the reset key can do this')
+        return serialization.load_pem_private_key(unwrap(self.dek, u['escrow_key'], b'escrow'), None)
+
+    def _escrow_dek_of(self, doc, username):
+        from cryptography.hazmat.primitives import hashes
+        from cryptography.hazmat.primitives.asymmetric import padding
+        u = doc['users'].get(username)
+        if not u or not u.get('escrow_dek'):
+            raise ValueError(f'{username} has not logged in since password reset was turned on — they must log in once first')
+        return self._escrow_private(doc).decrypt(_unb64(u['escrow_dek']),
+                                                 padding.OAEP(mgf=padding.MGF1(hashes.SHA256()), algorithm=hashes.SHA256(), label=b'FinanceHub'))
+
+    def _escrow_on_login(self, doc, username, dek):
+        """Keep the escrow up to date: create it on an administrator's first log-in after upgrading, store this user's
+        key for it, and give an administrator who lacks it the reset key."""
+        u = doc['users'][username]
+        changed = False
+        if not doc.get('escrow') and u.get('role') == 'admin':
+            self._escrow_init(doc, username, dek)
+            return True
+        if doc.get('escrow') and not u.get('escrow_dek'):
+            u['escrow_dek'] = self._escrow_wrap(doc, dek)
+            changed = True
+        if u.get('role') != 'admin' and u.get('escrow_key'):
+            u.pop('escrow_key')
+            changed = True
+        return changed
+
+    def grant_reset_key(self, doc, username, dek=None):
+        """Give an administrator the reset key (done by a logged-in administrator)."""
+        from cryptography.hazmat.primitives import serialization
+        if not doc.get('escrow'):
+            return
+        priv = self._escrow_private(doc)
+        dek = dek or self._escrow_dek_of(doc, username)
+        pem = priv.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption())
+        doc['users'][username]['escrow_key'] = wrap(dek, pem, b'escrow')
+
+    @_locked
+    def admin_reset_password(self, username, new_password):
+        """An administrator gives another user a new (temporary) password; the user must change it at the next log-in."""
+        doc = self.users_doc()
+        if username not in doc['users']:
+            raise ValueError('no such user')
+        if username == self.user:
+            raise ValueError('change your own password with your current password instead')
+        dek = self._escrow_dek_of(doc, username)
+        self._rewrap(doc, username, new_password, dek)
+        doc['users'][username]['must_change'] = True
+        self.failed.pop(username, None)
+        self.save_users(doc)
+
+    def must_change(self, username=None):
+        return bool(self.users_doc()['users'].get(username or self.user or '', {}).get('must_change'))
+
+    def can_reset(self, username):
+        doc = self.users_doc()
+        me = doc['users'].get(self.user or '', {})
+        return bool(doc.get('escrow') and me.get('escrow_key') and doc['users'].get(username, {}).get('escrow_dek'))
+
+    @_locked
+    def rename_user(self, old, new, password=None):
+        """Change a user ID. Your own: with your password. Another user's (administrator): via the reset key — the new
+        password must then be given too and the user changes it at the next log-in."""
+        import re as _re
+        new = (new or '').strip()
+        doc = self.users_doc()
+        if old not in doc['users']:
+            raise ValueError('no such user')
+        if not _re.fullmatch(r'[A-Za-z0-9._-]{3,40}', new):
+            raise ValueError('user ID: 3–40 letters / numbers (. _ - allowed)')
+        if new in doc['users'] and new != old:
+            raise ValueError('that user ID already exists')
+        if old == self.user:
+            dek = self._user_dek(doc, old, password or '')
+            if dek is None:
+                raise ValueError('wrong password')
+        else:
+            if not password:
+                raise ValueError('give the user a new password together with the new user ID')
+            dek = self._escrow_dek_of(doc, old)
+        entry = doc['users'].pop(old)
+        doc['users'][new] = entry
+        self._rewrap(doc, new, password, dek)        # the user ID is bound into the wrapped key
+        if old != self.user:
+            entry['must_change'] = True
+        self.save_users(doc)
+        if old == self.user:
+            self.user = new
+        return new
 
     def login(self, username, password):
         """Returns (ok, message). Opening another user's data first saves and closes the current one."""
@@ -297,15 +430,21 @@ class Vault:
             else:
                 self.nonce = secrets.token_hex(16)
                 self.last = time.time()
-        doc = self.users_doc()
-        doc['users'][username]['last_login'] = datetime.now().isoformat(timespec='seconds')
-        self.save_users(doc)
+        with self.lock:
+            doc = self.users_doc()
+            doc['users'][username]['last_login'] = datetime.now().isoformat(timespec='seconds')
+            try:
+                self._escrow_on_login(doc, username, dek)
+            except Exception:  # noqa: BLE001  (reset support is a convenience; never block a log-in)
+                pass
+            self.save_users(doc)
         return True, ''
 
     def needs_recovery_key(self):
         u = self.users_doc()['users'].get(self.user or '')
         return bool(u) and not u.get('recovery')
 
+    @_locked
     def recover(self, username, recovery_key, new_password):
         username = (username or '').strip()
         wait = self.failed.get('recover:' + username, (0, 0))
@@ -324,27 +463,43 @@ class Vault:
             return False, 'That recovery key does not match.'
         self.failed.pop('recover:' + username, None)
         self._rewrap(doc, username, new_password, dek)
+        doc['users'][username].pop('must_change', None)
         self.save_users(doc)
         return True, ''
 
     def role(self, username=None):
         return self.users_doc()['users'].get(username or self.user, {}).get('role', 'member')
 
+    @_locked
     def add_user(self, username, password, role, full_name=''):
         doc = self.users_doc()
         if username in doc['users']:
             raise ValueError('that user ID already exists')
-        self._new_user(doc, username, password, role if role in ROLES else 'member', full_name)
+        role = role if role in ROLES else 'member'
+        dek = self._new_user(doc, username, password, role, full_name)
+        if doc.get('escrow'):
+            doc['users'][username]['escrow_dek'] = self._escrow_wrap(doc, dek)
+            if role == 'admin':
+                try:
+                    self.grant_reset_key(doc, username, dek)
+                except ValueError:
+                    pass
         self.save_users(doc)
 
+    @_locked
     def set_password(self, username, password):
         """Only for the logged-in user (their key is open)."""
         if username != self.user:
             raise ValueError("a user's password can only be changed by that user (or with their recovery key)")
         doc = self.users_doc()
         self._rewrap(doc, username, password, self.dek)
+        doc['users'][username].pop('must_change', None)
         self.save_users(doc)
 
+    def check_password(self, username, password):
+        return self._user_dek(self.users_doc(), username, password) is not None
+
+    @_locked
     def set_role(self, username, role):
         doc = self.users_doc()
         if role not in ROLES or username not in doc['users']:
@@ -353,8 +508,16 @@ class Vault:
                 sum(1 for u in doc['users'].values() if u['role'] == 'admin') == 1:
             raise ValueError('keep at least one administrator')
         doc['users'][username]['role'] = role
+        if role == 'admin':
+            try:
+                self.grant_reset_key(doc, username)          # the new administrator can reset passwords too
+            except ValueError:
+                pass
+        else:
+            doc['users'][username].pop('escrow_key', None)
         self.save_users(doc)
 
+    @_locked
     def remove_user(self, username):
         """Removes the user and securely erases their encrypted database."""
         doc = self.users_doc()
@@ -385,6 +548,7 @@ class Vault:
                 d.rmdir()
             files.rmdir()
 
+    @_locked
     def new_recovery(self):
         doc = self.users_doc()
         rk = new_recovery_key()
@@ -395,6 +559,7 @@ class Vault:
         self.save_users(doc)
         return rk
 
+    @_locked
     def set_idle(self, minutes):
         doc = self.users_doc()
         doc.setdefault('settings', {})['idle_minutes'] = max(0, int(minutes))

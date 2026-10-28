@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Welcome – Finance Hub{% endblock %}
+{% block page_title %}Setting up your Hub{% endblock %}
+{% block content %}
+<div class="d-flex flex-wrap gap-2 mb-3">
+  {% for key, label, icon in STEPS %}
+    <a href="{{ url_for('welcome_step', name=key) }}" class="chip tone-{{ 'indigo' if key == step else ('green' if loop.index0 < i else 'slate') }}"
+       style="font-size:.8rem;padding:.35rem .7rem;text-decoration:none"><i class="bi {{ 'bi-check2' if loop.index0 < i else icon }} me-1"></i>{{ loop.index }}. {{ label }}</a>
+  {% endfor %}
+</div>
+<form method="post" class="hub-card" style="max-width:860px">
+{% if step == 'you' %}
+  <h5 class="mb-1">Welcome to Finance Hub</h5>
+  <p class="muted" style="font-size:.86rem">A few quick questions so the Hub fits you. Every step can be skipped and changed later in <b>Settings</b>.</p>
+  <label class="form-label">Your name (the Hub greets you with it)</label>
+  <input name="display_name" class="form-control form-control-sm mb-3" value="{{ display_name }}" maxlength="60">
+  <label class="form-label">Do you run your own company? Its name (optional)</label>
+  <input name="company" class="form-control form-control-sm" maxlength="60" placeholder="e.g. ABC Traders Pvt Ltd" value="{{ books[0] if books else '' }}">
+  <div class="muted mt-1 mb-2" style="font-size:.74rem">Its bank accounts and expenses are then kept in a separate book from your personal money.</div>
+  <label class="form-label">How its name appears on bank statements (optional, comma-separated)</label>
+  <input name="company_aliases" class="form-control form-control-sm" placeholder="e.g. ABC TRADERS, ABC TRADERS PRIVATE LIMITED">
+{% elif step == 'mail' %}
+  <h5 class="mb-1">Mail <span class="muted" style="font-size:.8rem">(optional)</span></h5>
+  <p class="muted" style="font-size:.84rem">A mailbox only for the Hub (for example a new Gmail address with an <b>app password</b>) lets the Hub read statements
+    that arrive by mail and send you reminders. You can do this later on <b>Settings › Mail inbox</b> — its page explains each step.</p>
+  <div class="row g-2">
+    <div class="col-md-6"><label class="form-label">Hub mailbox address</label><input name="user" type="email" class="form-control form-control-sm" value="{{ ms.user }}" placeholder="hub.statements@gmail.com"></div>
+    <div class="col-md-6"><label class="form-label">App password</label><input name="password" type="password" class="form-control form-control-sm" autocomplete="new-password"
+      placeholder="{{ 'saved — leave empty to keep' if ms.password else '16-letter app password' }}"></div>
+  </div>
+  <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="auto" id="wAuto" {{ 'checked' if ms.enabled == '1' or not ms.user }}>
+    <label class="form-check-label" for="wAuto" style="font-size:.84rem">Read the mailbox automatically while the Hub is open</label></div>
+  <label class="form-label mt-3">Send payment reminders and the weekly dues report to (one or more addresses)</label>
+  <input name="recipients" class="form-control form-control-sm" value="{{ ns.recipients|replace('\n', ', ') }}" placeholder="you@example.com, family@example.com">
+  <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="remind" id="wRem" {{ 'checked' if ns.enabled == '1' or not ns.recipients }}>
+    <label class="form-check-label" for="wRem" style="font-size:.84rem">Send a reminder the day before payments are due, and a report every Sunday morning</label></div>
+{% elif step == 'features' %}
+  <h5 class="mb-1">What do you use?</h5>
+  <p class="muted" style="font-size:.84rem">The menu will show only these. Nothing is deleted when something is off; add more any time on <b>Settings › Features &amp; accounts</b>.</p>
+  <div class="row g-3">{% for grp in GROUPS %}<div class="col-md-6"><div class="fw-semibold mb-1" style="font-size:.84rem">{{ grp }}</div>
+    {% for key, label, desc, group, icon, eps, kinds in FEATURES if group == grp %}
+      <label class="d-flex gap-2 align-items-start mb-1" style="cursor:pointer"><input class="form-check-input mt-1" type="checkbox" name="on" value="{{ key }}" {{ 'checked' if key not in off }}
+        {% if REQUIRES.get(key) %}data-needs="{{ REQUIRES[key] }}"{% endif %}>
+        <span><b style="font-size:.82rem">{{ label }}</b><div class="muted" style="font-size:.72rem">{{ desc }}</div></span></label>
+    {% endfor %}</div>{% endfor %}</div>
+{% elif step == 'accounts' %}
+  <h5 class="mb-1">Your accounts</h5>
+  <p class="muted" style="font-size:.84rem">Bank accounts and cards are created for you when you add their statements. Add anything else now (it opens in a new tab), or later from
+    <b>Settings › Features &amp; accounts</b>.</p>
+  <div class="row g-2">{% for k, K in KIND.items() if k not in hidden_kinds %}
+    <div class="col-md-6"><div class="list-row tone-{{ K.tone }}" style="font-size:.84rem"><i class="bi {{ K.icon }} t-tone me-2"></i>{{ K.label }}<span class="chip ms-2">{{ counts.get(k, 0) }}</span>
+      <a class="btn btn-sm btn-soft ms-auto" target="_blank" href="{{ url_for('accounts', tab=k, add=k) }}"><i class="bi bi-plus-lg me-1"></i>Add</a></div></div>
+  {% endfor %}</div>
+{% elif step == 'backup' %}
+  <h5 class="mb-1">Backup</h5>
+  <p class="muted" style="font-size:.84rem">Keep an encrypted copy of your data in OneDrive, Google Drive or another folder — it opens only with your password or recovery key.</p>
+  {% for label, path in clouds %}
+    <div class="form-check"><input class="form-check-input" type="radio" name="where" value="{{ path }}" id="b{{ loop.index }}" {{ 'checked' if bs.dir == path or (not bs.dir and loop.first) }}>
+      <label class="form-check-label" for="b{{ loop.index }}" style="font-size:.84rem"><b>{{ label }}</b> <span class="muted">{{ path }}</span></label></div>
+  {% else %}<div class="muted mb-1" style="font-size:.8rem">No OneDrive or Google Drive folder was found. Install their desktop app and sign in, or choose another folder.</div>{% endfor %}
+  <div class="form-check"><input class="form-check-input" type="radio" name="where" value="custom" id="bc" {{ 'checked' if not clouds and not bs.dir }}>
+    <label class="form-check-label" for="bc" style="font-size:.84rem">Another folder</label></div>
+  <input name="custom" class="form-control form-control-sm mt-1" placeholder="e.g. E:\Backups" onfocus="document.getElementById('bc').checked=true">
+  <div class="col-md-5 mt-2"><label class="form-label">Automatic backup</label><select name="every" class="form-select form-select-sm">
+    {% for k, v in EVERY.items() %}<option value="{{ k }}" {{ 'selected' if k == (bs.every if bs.every != 'off' else 'weekly') }}>{{ v }}</option>{% endfor %}</select></div>
+{% endif %}
+  <div class="d-flex flex-wrap gap-2 mt-4">
+    {% if nxt %}<button class="btn btn-primary btn-sm">Save and continue <i class="bi bi-arrow-right ms-1"></i></button>
+    {% else %}<button class="btn btn-primary btn-sm" name="then" value="import"><i class="bi bi-cloud-arrow-up me-1"></i>Finish and add my first statements</button>
+      <button class="btn btn-soft btn-sm" name="then" value="home">Finish</button>{% endif %}
+    <button class="btn btn-link btn-sm ms-auto muted" name="skip" value="1" formnovalidate>Skip this step</button>
+  </div>
+</form>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('[data-needs]').forEach(cb => {
+  const need = document.querySelector(`input[name=on][value="${cb.dataset.needs}"]`);
+  const sync = () => { if (!need.checked) cb.checked = false; cb.disabled = !need.checked; };
+  need.addEventListener('change', sync); sync();
+});
+</script>
+{% endblock %}

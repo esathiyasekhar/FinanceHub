@@ -88,8 +88,10 @@ def register(app, get_db, vault):
             return None
         con = get_db()
         wizard = not app.testing or app.config.get('FH_WIZARD')       # the automated tests skip the welcome step
-        if wizard and ep == 'home' and request.method == 'GET' and _get(con, 'features_done') != '1':
-            return redirect(url_for('features_page', welcome=1))
+        if wizard and ep == 'home' and request.method == 'GET':
+            import welcome
+            if welcome.needed(con):
+                return redirect(url_for('welcome_step', name='you'))       # 1.7: the first-start setup wizard
         eps, _ = hidden(con)
         if ep in eps:
             name = next((f[1] for f in FEATURES if ep in f[5]), 'This feature')

@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Report a problem – Finance Hub{% endblock %}
+{% block page_title %}Report a problem{% endblock %}
+{% block content %}
+<div class="hub-card mb-3 tone-indigo"><div style="font-size:.84rem">Something not working, or a statement not read correctly? Tell us here — the report goes to
+  <b>{{ support }}</b>. You see exactly what will be sent below. <b>Never</b> included: statements, passwords, or your data in the Hub. Numbers with 4 or more
+  digits, e-mail addresses, PANs and file paths are masked — also in what you type — so describe the problem without names you would rather not share.</div></div>
+<form method="post" action="{{ url_for('support_send') }}" class="row g-3">
+  <input type="hidden" name="ref" value="{{ ref or f.get('ref', '') }}">
+  <div class="col-lg-6">
+    <div class="hub-card">
+      <label class="form-label">Short summary</label>
+      <input name="summary" class="form-control form-control-sm mb-2" required maxlength="120" value="{{ f.get('summary', '') }}" placeholder="e.g. HDFC credit card statement shows no transactions">
+      <div class="row g-2">
+        <div class="col-7"><label class="form-label">Where in the Hub</label><input name="where" class="form-control form-control-sm" value="{{ f.get('where', '') }}" placeholder="e.g. Add Statements"></div>
+        <div class="col-5"><label class="form-label">How bad</label><select name="severity" class="form-select form-select-sm">
+          {% for k, v in [('minor', 'Small annoyance'), ('normal', 'Something does not work'), ('blocking', 'I cannot use the Hub')] %}
+          <option value="{{ k }}" {{ 'selected' if f.get('severity', 'normal') == k }}>{{ v }}</option>{% endfor %}</select></div>
+      </div>
+      <label class="form-label mt-2">What happened</label>
+      <textarea name="what" rows="3" class="form-control form-control-sm">{{ f.get('what', '') }}</textarea>
+      <label class="form-label mt-2">Steps to make it happen again</label>
+      <textarea name="steps" rows="3" class="form-control form-control-sm" placeholder="1. … 2. …">{{ f.get('steps', '') }}</textarea>
+      <label class="form-label mt-2">What you expected</label>
+      <textarea name="expected" rows="2" class="form-control form-control-sm">{{ f.get('expected', '') }}</textarea>
+      <label class="form-label mt-2">Your e-mail for a reply (optional)</label>
+      <input name="contact" type="email" class="form-control form-control-sm" value="{{ f.get('contact', default_contact) }}">
+      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="diag" value="1" id="sDiag" {{ 'checked' if f.get('diag', '1') == '1' }}>
+        <label class="form-check-label" for="sDiag" style="font-size:.82rem">Include technical details (version, Windows / Python version, features, counts)</label></div>
+      <div class="form-check"><input class="form-check-input" type="checkbox" name="logs" value="1" id="sLogs" {{ 'checked' if f.get('logs', '1') == '1' }}>
+        <label class="form-check-label" for="sLogs" style="font-size:.82rem">Include recent error lines from the log (numbers, e-mails and paths masked)</label></div>
+      <div class="d-flex flex-wrap gap-2 mt-3">
+        <button class="btn btn-sm btn-soft" formmethod="get" formaction="{{ url_for('support_page') }}"><i class="bi bi-eye me-1"></i>Update preview</button>
+        <button class="btn btn-sm btn-primary" name="action" value="send" {{ 'disabled' if not mail_ready }}><i class="bi bi-send me-1"></i>Send report</button>
+        <button class="btn btn-sm btn-soft" name="action" value="mailto"><i class="bi bi-envelope me-1"></i>Open in my mail program</button>
+        <button class="btn btn-sm btn-soft" name="action" value="download"><i class="bi bi-download me-1"></i>Save as a file</button>
+      </div>
+      {% if not mail_ready %}<div class="muted mt-2" style="font-size:.74rem">“Send report” needs the Hub mailbox (Settings › Mail inbox). Without it, open the report in your
+        mail program, or save it and attach it to a mail to {{ support }}.</div>{% endif %}
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="hub-card h-100"><h6>What will be sent</h6>
+      <pre style="white-space:pre-wrap;font-size:.74rem;max-height:620px;overflow:auto" class="mb-0">{{ text }}</pre></div>
+  </div>
+</form>
+{% endblock %}

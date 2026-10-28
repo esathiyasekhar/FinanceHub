@@ -71,7 +71,7 @@ Normally you can leave **Outgoing mail server** alone. The Hub sends through the
 You don't have to keep the Hub unlocked for reminders. This is how it works:
 
 1. Whenever the Hub is unlocked, it prepares the mails for the coming two weeks. It prepares them again whenever your data changes, every hour, and after midnight.
-2. The prepared mails are kept in memory. On Windows they are also saved in the `data` folder, protected by your **Windows login**. Nobody can read that file on another computer or from another Windows account.
+2. The prepared mails are kept in memory. On Windows they are also saved in the `data` folder inside your Finance Hub data folder, protected by your **Windows login**. Nobody can read that file on another computer or from another Windows account.
 3. A small timer in the Hub checks every minute and sends each mail when its time comes, even while the Hub is locked and, on Windows, even after a restart.
 
 > **Important:** The mails show your data as it was when they were prepared. A payment you made after that, or one that is not yet in an imported statement, still shows as due. Log in at least once a week so that the mails stay up to date and new ones are prepared.

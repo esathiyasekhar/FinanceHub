@@ -18,7 +18,7 @@ sys.path.insert(0, str(BASE))
 from hub_version import VERSION  # noqa: E402
 
 SKIP_DIRS = {'data', 'uploads', 'backups', 'logs', '.venv', '.git', 'dist', '__pycache__', 'tests', 'statements', '.pytest_cache'}
-SKIP_FILES = {'users.json', 'requirements.lock', 'finance.db'}
+SKIP_FILES = {'users.json', 'requirements.lock', 'finance.db', 'financehub.json'}
 TEXT_EXT = {'.py', '.pyw', '.html', '.md', '.bat', '.txt', '.json', '.js', '.css', '.cfg', '.toml'}
 PATTERNS = {
     'PAN': re.compile(r'\b[A-Z]{3}[PCHFATBLJG][A-Z]\d{4}[A-Z]\b'),
@@ -90,6 +90,16 @@ def main():
         z.writestr('MANIFEST.sha256', '\n'.join(manifest) + '\n')
     h = hashlib.sha256(out.read_bytes()).hexdigest()
     (dist / f'{out.name}.sha256').write_text(f'{h}  {out.name}\n')
+    # 1.7: the Windows setup package — the wizard (setup.pyw / Setup.cmd) with this release inside
+    setup = dist / f'FinanceHub_{VERSION}_Setup.zip'
+    top = f'FinanceHub_{VERSION}_Setup'
+    with zipfile.ZipFile(setup, 'w', zipfile.ZIP_DEFLATED) as z:
+        for name in ('setup.pyw', 'Setup.cmd', 'hub.ico', 'README.txt', 'FinanceHub_Setup.iss', 'build_exe.bat'):
+            z.write(BASE / 'installer' / name, f'{top}/{name}')
+        z.write(out, f'{top}/{out.name}')
+    hs = hashlib.sha256(setup.read_bytes()).hexdigest()
+    (dist / f'{setup.name}.sha256').write_text(f'{hs}  {setup.name}\n')
+    print(f'Built {setup.relative_to(BASE)} — Windows setup package, sha256 {hs[:16]}…')
     try:
         desc = subprocess.run(['git', 'describe', '--tags', '--dirty', '--always'], cwd=BASE, capture_output=True, text=True).stdout.strip()
     except OSError:

@@ -14,12 +14,18 @@ from datetime import datetime
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(BASE))
+try:
+    import hub_paths as _hp                      # 1.7: data may live in a separate folder
+    DATA = _hp.DATA_ROOT
+except Exception:  # noqa: BLE001  (upgrading from a version without hub_paths)
+    DATA = BASE
 KEEP = {'data', 'uploads', 'backups', 'logs', '.venv', '.git', 'dist'}
 
 
 def running():
     try:
-        port = os.environ.get('FINANCEHUB_PORT', '5000')
+        port = os.environ.get('FINANCEHUB_PORT') or getattr(sys.modules.get('hub_paths'), 'PORT', 5000)
         with urllib.request.urlopen(f'http://127.0.0.1:{port}/healthz', timeout=2) as r:
             return r.read(20).startswith(b'FinanceHub')
     except Exception:  # noqa: BLE001
@@ -51,19 +57,20 @@ def main(zpath):
     new_ver = next((l.split("'")[1] for l in z.read('hub_version.py').decode().splitlines() if l.startswith('VERSION')), '?')
     old_man = BASE / 'MANIFEST.sha256'
     old = {l.partition('  ')[2] for l in old_man.read_text().splitlines()} if old_man.exists() else set()
-    data = BASE / 'data'
+    data = DATA / 'data'
     if data.is_dir() and any(data.glob('*.enc')):
-        dest = BASE / 'backups' / f'{datetime.now():%Y-%m-%d_%H%M%S}_before_{new_ver}'
+        dest = DATA / 'backups' / f'{datetime.now():%Y-%m-%d_%H%M%S}_before_{new_ver}'
         dest.mkdir(parents=True)
         for f in list(data.glob('*.enc')) + list(data.glob('*.enc.prev')):
             shutil.copy2(f, dest / f.name)
         for d in data.glob('*_files'):
             if d.is_dir():
                 shutil.copytree(d, dest / d.name)
-        if (BASE / 'users.json').exists():
-            shutil.copy2(BASE / 'users.json', dest / 'users.json')
+        if (DATA / 'users.json').exists():
+            shutil.copy2(DATA / 'users.json', dest / 'users.json')
         (data / '.version').write_text(new_ver)          # the launcher need not back up the same data again
-        olds = sorted(p for p in (BASE / 'backups').iterdir() if p.is_dir())
+        import re
+        olds = sorted(p for p in (DATA / 'backups').iterdir() if p.is_dir() and re.match(r'\d{4}-\d{2}-\d{2}_\d{6}_before_', p.name))
         for p in olds[:-10]:
             shutil.rmtree(p, ignore_errors=True)
         print(f'Encrypted data backed up to backups/{dest.name}')

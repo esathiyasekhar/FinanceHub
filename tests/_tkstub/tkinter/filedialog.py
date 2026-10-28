@@ -1,0 +1,2 @@
+def askdirectory(**k):
+    return ""

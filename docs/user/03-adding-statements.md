@@ -126,7 +126,7 @@ To remove a statement, click its **×** button and confirm. The Hub deletes the 
 
 The red box at the bottom right holds three tools for starting over. Use them with care:
 
-- **Reset & Reload from Folder**: deletes all transactions and the statement history, then adds every file found in the `statements` folder.
+- **Reset & Reload from Folder**: deletes all transactions and the statement history, then adds every file found in the `statements` folders: one in your Finance Hub data folder, in the program folder or next to it. The folders it found are listed under the button.
 - **Clear this year's data**: deletes all transactions of the financial year you choose, so its statements can be added again.
 - **Delete All Transactions**: deletes every transaction and the statement history. Accounts, EMIs, loans and passwords are kept.
 

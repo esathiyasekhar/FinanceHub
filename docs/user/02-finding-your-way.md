@@ -41,7 +41,7 @@ Below them the pages are grouped. Click a group name to open or close it. The Hu
 | **Money** | Transactions, Breakdown, Recurring & subscriptions, Budgets, Transfers & links, Loans with people, Failed & refunds, Reimbursements, Director's account, Reports & ITR |
 | **Investments** | Portfolio & plan, Trades, Holdings by broker, Demat check (CDSL / NSDL), Asset types, Import broker files |
 | **Plan** | Wealth planner, Card & loan tools |
-| **Settings** | Categories, Payee rules, People & entities, Statement passwords, Mail inbox, Reminders & reports by mail, Help & user manual, Users & security |
+| **Settings** | Categories, Payee rules, Features & accounts, People & entities, Statement passwords, Mail inbox, Reminders & reports by mail, Backup & restore, Help & user manual, Report a problem, Users & security |
 
 The bottom of the sidebar shows the current financial year, your name and the version numbers of Finance Hub and its Statement Reader.
 
@@ -122,6 +122,7 @@ You can also open **Settings › Help & user manual**. There you find:
 - the list of chapters, with a short summary of each;
 - **Search the manual…**: type a few words, such as "recovery key" or "UPI";
 - **User manual (PDF)**: the whole manual as one PDF, to read or print;
+- **Report a problem**: tell the Finance Hub team about something that doesn't work (see [Reporting a problem](help:reporting-a-problem));
 - an **On this page** list on wide screens, to jump to a section of the chapter.
 
 > **Good to know:** Administrators also see a **Design manual (internal)**. It describes how the Hub is built and is meant for the person who maintains it.

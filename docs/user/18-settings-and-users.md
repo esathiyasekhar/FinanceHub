@@ -1,19 +1,19 @@
 # Users, security and statement passwords
-<!-- endpoints: users_page, passwords_page -->
+<!-- endpoints: users_page, passwords_page, change_password#password-reset-by-an-administrator -->
 <!-- icon: bi-shield-lock -->
 
-Manage who can use the Hub, change your password and recovery key, set the automatic lock, and look after the passwords that open your statements.
+Manage who can use the Hub, change your password, user ID and recovery key, reset another user's password as an administrator, set the automatic lock, and look after the passwords that open your statements.
 
 ## Users & security
 
-Open **Settings › Users & security**. The page has four parts: your name, the list of users, **Protection** and **Running**. Administrators also see **Unencrypted copies in the app folder**.
+Open **Settings › Users & security** ([Users & security](/users)). The page has four parts: your name, the list of users, **Protection** and **Running**. Administrators also see **Unencrypted copies in the app folder**.
 
 ### Your name and your user ID
 
 These are two different things:
 
 - **Your name** is how the Hub greets you and what it shows at the bottom of the sidebar. You can change it at any time: type it and click **Save**. It is stored only inside your encrypted data.
-- **Your user ID** is what you type to log in. It cannot be changed.
+- **Your user ID** is what you type to log in. You can change it too, with your password. See [Changing your user ID](#changing-your-user-id).
 
 ### Users and roles
 
@@ -23,8 +23,8 @@ There are two kinds of access:
 
 | Access | What they can do |
 |---|---|
-| **Administrator (can add / remove users)** | Everything a user can, plus add and remove users, change access, set the idle lock and remove unencrypted copies. |
-| **User** | Use the Hub with their own data, change their own password and make a new recovery key. |
+| **Administrator (can add / remove users)** | Everything a user can, plus add and remove users, change access, reset another user's password or user ID, set the idle lock and remove unencrypted copies. |
+| **User** | Use the Hub with their own data, change their own password and user ID, and make a new recovery key. |
 
 The first user, created at the first start, is an administrator. The Hub always keeps at least one administrator.
 
@@ -36,7 +36,7 @@ Only an administrator can do this.
 2. Choose the **Access**: **User** or **Administrator**.
 3. Click the add-user button.
 
-The new user starts with empty data. The first time they log in, the Hub shows them their own recovery key. Ask them to store it safely.
+The new user starts with empty data. The first time they log in, the Hub shows them their own recovery key and then the setup wizard (see [Getting started](help:getting-started#the-setup-wizard)). Ask them to store the key safely.
 
 > **Good to know:** Only one person can have the Hub open at a time. When another user logs in, the first user's data is saved and locked.
 
@@ -51,7 +51,55 @@ The new user starts with empty data. The first time they log in, the Hub shows t
 2. Enter your **Current password**, then the **New password** twice.
 3. Click **Change**.
 
-Each user changes only their own password. If someone has forgotten theirs, they use their recovery key on the log-in page. See [Getting started](help:getting-started#if-you-forget-your-password).
+The Hub checks your current password and saves the new one. You stay logged in, and your recovery key keeps working.
+
+Each user changes only their own password this way. If someone has forgotten theirs, they use their recovery key on the log-in page (see [Getting started](help:getting-started#if-you-forget-your-password)), or an administrator resets it (see below).
+
+### Changing your user ID
+
+1. Click **Change user ID** on your own line.
+2. Type the **New user ID**: 3 to 40 letters or numbers; dots, dashes and underscores are allowed. It must not belong to another user.
+3. Type **Your password**.
+4. Click **Change user ID**.
+
+The Hub confirms "Your user ID is now …". Use the new ID the next time you log in. Your data, your name, your password, your recovery key and your backup settings stay as they are; only what you type to log in changes.
+
+> **Good to know:** The list **Your backups** on [Backup and restore](help:backup-and-restore) shows only backups made under your present user ID. Backups made before the change can still be restored with **Restore from a file**.
+
+## Password reset by an administrator
+
+If a user has forgotten their password and lost their recovery key, an administrator can give them a temporary password. An administrator can also change another user's user ID this way.
+
+### What the administrator does
+
+1. Open **Settings › Users & security**.
+2. Click **Reset…** on that user's line.
+3. To change their user ID as well, type the **New user ID (optional)**. Otherwise leave it empty.
+4. Type a **Temporary password** twice (**Temporary password** and **Again**). The usual password rules apply.
+5. Click **Set**.
+6. Tell the user the temporary password (and the new user ID, if you changed it), in person or by phone.
+
+You cannot reset your own password this way; use **Change password** with your current password, or your recovery key.
+
+### What the user sees
+
+1. They log in with the temporary password (and the new user ID, if it changed).
+2. The Hub shows **Choose your password** before anything else.
+3. They type the **Temporary password**, then their own **New password** twice, and click **Save my password**.
+
+From then on only they know their password. Their data, recovery key and settings are unchanged.
+
+### When reset is available
+
+Instead of **Reset…**, a user's line may say **reset after their next log-in**. Reset works only after that user has logged in once with Finance Hub 1.7 or newer, because that log-in stores the copy of their key that a reset needs. Users added with 1.7 or newer can be reset at once.
+
+Every administrator can reset passwords. After an upgrade to 1.7, the first administrator who logs in turns password reset on. Other administrators get the ability when they next log in, or when an administrator who already has it opens **Users & security**. Someone who is made an administrator gets it straight away.
+
+### What this means for privacy
+
+Below the list of users, every user sees: **Administrators can reset another user's password (and so could open that user's data); everyone else's data stays private to them.**
+
+That is the price of being able to help someone who has lost both their password and their recovery key: whoever is an administrator could give themselves access to another user's data. Give administrator access only to people every user trusts. See [Security and privacy](help:security-and-privacy#administrators-can-reset-passwords).
 
 ## Your recovery key
 
@@ -77,14 +125,14 @@ Background mail checks don't count as use, so they don't keep the Hub unlocked.
 
 The **Running** card tells you how the Hub is running:
 
-- **Version**: for example Finance Hub 1.6.
+- **Version**: for example Finance Hub 1.7.
 - **Server**: normally the production server, running in the background.
-- **Backups of your encrypted data**: how many backups there are, and the date of the newest. A backup is taken automatically the first time a new version starts. See [Backups, upgrades and troubleshooting](help:backups-upgrades-and-troubleshooting).
-- **Start with Windows: on** or **off**: click the button to switch it. This button appears only when the Hub was started from its shortcut.
+- **Backups of your encrypted data**: how many version backups there are in the `backups` folder of your data folder, and the date of the newest. A backup is taken automatically the first time a new version starts. See [Backups, upgrades and troubleshooting](help:backups-upgrades-and-troubleshooting). Your own copies in OneDrive, Google Drive or another folder are on [Backup and restore](help:backup-and-restore).
+- **Start with Windows: on** or **off**: an administrator clicks the button to switch it. This button appears only when the Hub was started from its shortcut. Anyone can also switch it in the tray menu.
 
 ## Removing unencrypted copies
 
-Administrators see the card **Unencrypted copies in the app folder**. It lists files in the Finance Hub folder that are not encrypted, such as databases from older versions, their backups, or uploaded statements left behind.
+Administrators see the card **Unencrypted copies in the app folder**. It lists files in the Finance Hub data folder that are not encrypted, such as databases from older versions, their backups, or uploaded statements left behind.
 
 1. Tick the files to remove. All are ticked to begin with.
 2. Click **Overwrite & delete ticked** and confirm.

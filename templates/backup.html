@@ -1,0 +1,73 @@
+{% extends "base.html" %}
+{% block title %}Backup & restore – Finance Hub{% endblock %}
+{% block page_title %}Backup &amp; restore{% endblock %}
+{% block content %}
+<div class="hub-card mb-3 tone-indigo">
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <div class="kpi p-0 border-0" style="box-shadow:none"><div class="ico"><i class="bi bi-cloud-arrow-up"></i></div></div>
+    <div class="flex-grow-1" style="font-size:.84rem">Keep a copy of your data in <b>OneDrive</b>, <b>Google Drive</b> or any folder. A backup is one
+      <code>.fhb</code> file that stays <b>encrypted</b> — it opens only with your password or recovery key, so it is safe in the cloud.
+      The OneDrive / Google Drive app on this PC uploads it for you.</div>
+    <div class="d-flex gap-2 flex-wrap">
+      <form method="post" action="{{ url_for('backup_now') }}"><button class="btn btn-sm btn-primary" {{ 'disabled' if not s.dir }}><i class="bi bi-cloud-arrow-up me-1"></i>Back up now</button></form>
+      <a class="btn btn-sm btn-soft" href="{{ url_for('backup_download') }}"><i class="bi bi-download me-1"></i>Download a backup file</a>
+    </div>
+  </div>
+  {% if s.last or s.last_error %}<div class="muted mt-2" style="font-size:.76rem">
+    {% if s.last %}<i class="bi bi-check2-circle text-success me-1"></i>Last backup {{ s.last|replace('T', ' ') }}{% endif %}
+    {% if s.last_error %}<span class="text-danger ms-2"><i class="bi bi-exclamation-triangle me-1"></i>{{ s.last_error }}</span>{% endif %}</div>{% endif %}
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="hub-card mb-3">
+      <h6><i class="bi bi-folder2-open me-2 text-primary"></i>Where and how often</h6>
+      <form method="post" action="{{ url_for('backup_save') }}">
+        {% for label, path in clouds %}
+          <div class="form-check"><input class="form-check-input" type="radio" name="where" value="{{ path }}" id="w{{ loop.index }}" {{ 'checked' if s.dir == path }}>
+            <label class="form-check-label" for="w{{ loop.index }}" style="font-size:.84rem"><b>{{ label }}</b> <span class="muted">{{ path }}</span></label></div>
+        {% else %}
+          <div class="muted mb-2" style="font-size:.8rem">No OneDrive or Google Drive folder was found on this PC. Install <b>OneDrive</b> or
+            <b>Google Drive for desktop</b> and sign in with your account — or choose any folder below (for example a USB drive).</div>
+        {% endfor %}
+        {% set custom = s.dir and s.dir not in clouds|map(attribute=1)|list %}
+        <div class="form-check mt-1"><input class="form-check-input" type="radio" name="where" value="custom" id="wc" {{ 'checked' if custom }}>
+          <label class="form-check-label" for="wc" style="font-size:.84rem">Another folder</label></div>
+        <input name="custom" class="form-control form-control-sm mt-1" value="{{ s.dir if custom else '' }}" placeholder="e.g. E:\Backups" onfocus="document.getElementById('wc').checked=true">
+        <div class="row g-2 mt-2">
+          <div class="col-7"><label class="form-label">Automatic backup</label><select name="every" class="form-select form-select-sm">
+            {% for k, v in EVERY.items() %}<option value="{{ k }}" {{ 'selected' if s.every == k }}>{{ v }}</option>{% endfor %}</select></div>
+          <div class="col-5"><label class="form-label">Keep the newest</label><input name="keep" type="number" min="1" max="100" value="{{ s.keep }}" class="form-control form-control-sm"></div>
+        </div>
+        <button class="btn btn-sm btn-primary mt-2"><i class="bi bi-check2 me-1"></i>Save</button>
+        {% if folder %}<div class="muted mt-2" style="font-size:.72rem">Backups go to <code>{{ folder }}</code>. Automatic backups run in the background (also while
+          the Hub is locked), only when your data changed.</div>{% endif %}
+      </form>
+    </div>
+  </div>
+  <div class="col-lg-6">
+    <div class="hub-card mb-3">
+      <h6><i class="bi bi-clock-history me-2 text-primary"></i>Your backups</h6>
+      {% for b in found %}
+        <form method="post" action="{{ url_for('backup_restore') }}" class="list-row flex-wrap gap-2" onsubmit="return confirm('Replace your present data with this backup? What you have now is saved to the local backups folder first.')">
+          <input type="hidden" name="path" value="{{ b.path }}">
+          <div class="min-w-0"><div style="font-size:.84rem">{{ b.created[:16]|replace('T', ' ') }}</div>
+            <div class="muted" style="font-size:.7rem">version {{ b.version }} · {{ (b.size / 1024)|round(0)|int }} KB</div></div>
+          <input name="password" type="password" class="form-control form-control-sm ms-auto" style="max-width:170px" placeholder="password (only for a backup from another installation)">
+          <button class="btn btn-sm btn-soft"><i class="bi bi-arrow-counterclockwise me-1"></i>Restore</button>
+        </form>
+      {% else %}<div class="empty"><i class="bi bi-archive"></i>{{ 'No backups in that folder yet.' if s.dir else 'Choose a backup folder first.' }}</div>{% endfor %}
+    </div>
+    <div class="hub-card">
+      <h6><i class="bi bi-upload me-2 text-primary"></i>Restore from a file</h6>
+      <form method="post" action="{{ url_for('backup_restore') }}" enctype="multipart/form-data" class="row g-2"
+            onsubmit="return confirm('Replace your present data with this backup? What you have now is saved to the local backups folder first.')">
+        <div class="col-12"><input type="file" name="file" accept=".fhb" class="form-control form-control-sm" required></div>
+        <div class="col-8"><input name="password" type="password" class="form-control form-control-sm" placeholder="password — needed only for a backup from another installation"></div>
+        <div class="col-4"><button class="btn btn-sm btn-primary w-100">Restore</button></div>
+      </form>
+      <div class="muted mt-2" style="font-size:.72rem">Moving to a new computer? Install Finance Hub there and choose <b>Restore from a backup</b> on the first-start page.</div>
+    </div>
+  </div>
+</div>
+{% endblock %}

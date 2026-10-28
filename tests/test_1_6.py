@@ -182,7 +182,7 @@ print('reminders OK')
 # ── features (choose what you use) ───────────────────────────────────────────
 A.app.config['FH_WIZARD'] = True
 r = c.get('/')
-assert r.status_code == 302 and '/features' in r.headers['Location'], 'first visit shows the welcome step'
+assert r.status_code == 302 and '/welcome' in r.headers['Location'], 'first visit shows the setup wizard'
 h = c.get('/features?welcome=1').get_data(as_text=True)
 assert 'What do you use?' in h and 'Add' in h
 on = ['bank', 'cards', 'loans', 'budgets', 'refunds', 'mail', 'reminders', 'demat']          # investments off → demat off too

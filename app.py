@@ -13,10 +13,12 @@ from flask import (Flask, render_template, request, jsonify, g, redirect,
 from werkzeug.utils import secure_filename
 
 # ── App setup ─────────────────────────────────────────────────────────────────
-BASE_DIR = Path(__file__).parent
-DB_PATH  = BASE_DIR / 'finance.db'
-STMT_DIR = BASE_DIR / 'statements'
-UPLOAD_DIR = BASE_DIR / 'uploads'
+import hub_paths  # noqa: E402  (1.7: program folder vs data folder)
+BASE_DIR = hub_paths.PROGRAM_DIR
+DATA_ROOT = hub_paths.DATA_ROOT
+DB_PATH  = DATA_ROOT / 'finance.db'
+STMT_DIR = DATA_ROOT / 'statements'
+UPLOAD_DIR = hub_paths.UPLOAD_DIR
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTS = {'.pdf', '.xlsx', '.xls', '.csv'}
@@ -32,7 +34,7 @@ app.config.update(SESSION_COOKIE_SAMESITE='Strict', SESSION_COOKIE_HTTPONLY=True
 # 1.2: the database is encrypted on disk (finance.db.enc) and opened in memory after login — see vault.py
 import vault as _vault  # noqa: E402
 import dbconn  # noqa: E402
-V = _vault.Vault(BASE_DIR)
+V = _vault.Vault(DATA_ROOT)
 dbconn.VAULT = V
 
 def _current_fy():
@@ -500,7 +502,7 @@ def delete_statement(sid):
 
 def _statement_folders():
     """The app's own statements/ folder and the one next to it (FinanceHub_v2\\statements)."""
-    cands = [STMT_DIR, BASE_DIR.parent / 'statements']
+    cands = [STMT_DIR, BASE_DIR / 'statements', BASE_DIR.parent / 'statements']
     return [p for p in cands if p.exists() and any(p.rglob('*.*'))]
 
 
@@ -682,6 +684,12 @@ import refunds  # noqa: E402      (1.6: failed & reversed payments, refund track
 refunds.register(app, get_db)
 import features  # noqa: E402     (1.6: choose the features you use; add missing accounts)
 features.register(app, get_db, V)
+import backup  # noqa: E402       (1.7: backup / restore to OneDrive, Google Drive or any folder)
+backup.register(app, V)
+import support  # noqa: E402      (1.7: report a problem)
+support.register(app, get_db, V)
+import welcome  # noqa: E402      (1.7: first-start setup wizard)
+welcome.register(app, get_db, V)
 
 
 # ── 1.6: running in the background ─────────────────────────────────────────
@@ -723,8 +731,9 @@ def app_autostart():
 @app.context_processor
 def _runtime_ctx():
     get = app.config.get('HUB_AUTOSTART_GET')
-    bdir = BASE_DIR / 'backups'
-    backs = sorted(p.name for p in bdir.iterdir() if p.is_dir()) if bdir.is_dir() else []
+    bdir = hub_paths.BACKUP_DIR
+    backs = sorted(p.name for p in bdir.iterdir() if p.is_dir() and re.match(r'\d{4}-\d{2}-\d{2}_\d{6}_before_', p.name)) \
+        if bdir.is_dir() else []                    # version backups only (restore safety copies live elsewhere)
     kind = app.config.get('HUB_SERVER')
     return {'hub_launcher': bool(app.config.get('HUB_LAUNCHER')),
             'hub_autostart': (get() if get else None),
@@ -733,9 +742,6 @@ def _runtime_ctx():
             'hub_backups': {'n': len(backs), 'last': backs[-1][:10] if backs else ''}}
 
 
-@app.errorhandler(500)
-def _server_error(e):
-    return render_template('auth_error.html'), 500
 
 
 def create_app():
@@ -744,7 +750,7 @@ def create_app():
 
 
 if __name__ == '__main__':
-    print('Finance Hub ' + HUB_VERSION + ' — open http://127.0.0.1:5000 in your browser (this computer only).')
+    print(f'Finance Hub {HUB_VERSION} — open http://127.0.0.1:{hub_paths.PORT} in your browser (this computer only).')
     print('Tip: the FinanceHub shortcut (FinanceHub.pyw) runs the Hub in the background with a tray icon.')
     notify.start_scheduler()
-    app.run(debug=False, host='127.0.0.1', port=5000, threaded=False)
+    app.run(debug=False, host='127.0.0.1', port=hub_paths.PORT, threaded=False)

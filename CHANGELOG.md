@@ -3,6 +3,41 @@
 Every change gets a new version number (shown at the bottom of the sidebar). From 28 Oct 2026 versions run 1.1, 1.2, …
 Earlier versions (v2 – v11) and their data were deleted at the owner's request; this log starts with 1.1.
 
+## 1.7 — 2026-10-28
+**Windows installer**
+- **Setup** (`Setup.cmd` → setup wizard): choose the **program folder** (default `C:\Program Files\Finance Hub`) and the
+  **data folder** (default `D:\Finance Hub`, or `C:\Finance Hub Data` without a D: drive); optionally **bring over the
+  data of an older Finance Hub folder**; Desktop shortcut, start with Windows, start now. Windows asks once for
+  administrator permission for Program Files. The setup checks every file of the release, creates the Hub's own Python
+  environment, the shortcuts and an entry in **Settings › Apps** (uninstall keeps your data). Running a newer Setup upgrades.
+  Optional single `.exe`: `build_exe.bat` with Inno Setup 6.
+- The program and your data are now **separate**: the data folder holds the encrypted databases, `users.json`, uploads,
+  logs and backups (`financehub.json` beside the program says where).
+
+**First-start setup wizard** — after creating your user: about you (and your company as a separate book), the Hub's
+  mailbox and where reminders go, the features you use, your accounts, and backup. Every step can be skipped and changed later.
+
+**Users**
+- **Change your user ID** (with your password) and your password on *Users & security*.
+- **Administrators can reset a user's password** (and user ID): the user logs in with the temporary password and must
+  choose their own. This works through a reset key only administrators hold — so an administrator could open another
+  user's data; the page says so. Available for a user once they have logged in with 1.7.
+
+**Backup & restore** (*Settings › Backup & restore*)
+- Back up to **OneDrive**, **Google Drive** (through their folders on this PC) or any folder — now, automatically every
+  day / week (also while the Hub is locked, only when something changed), keeping the newest N. Or download a backup file.
+- A backup is one `.fhb` file and stays **encrypted** (opens only with your password or recovery key).
+- Restore your data from any backup (your present data is saved first), or **restore on a new computer** from the
+  first-start page.
+
+**Report a problem** (*Settings › Report a problem*, the Help page, and every error page with an error reference):
+  describe the problem, preview exactly what is sent (versions, settings, recent error lines — numbers, e-mails, PANs and
+  paths masked; never your data), and send it to the support address through the Hub's mailbox, your mail program, or
+  save it as a file.
+
+**Also:** user manual chapters for installing, the setup wizard, users, backup & restore and problem reports; design
+  manual updated; installer, backup, reset and report code covered by new tests.
+
 ## 1.6 — 2026-10-28
 **Runs in the background, production-grade**
 - **No console window.** The *Finance Hub* shortcut (Desktop and Start menu) starts the Hub in the background with a

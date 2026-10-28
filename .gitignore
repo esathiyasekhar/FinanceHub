@@ -16,3 +16,4 @@ __pycache__/
 *.pyc
 dist/
 requirements.lock
+financehub.json

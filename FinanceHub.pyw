@@ -27,11 +27,13 @@ sys.path.insert(0, str(BASE))
 
 from hub_version import APP_NAME, VERSION  # noqa: E402
 
+import hub_paths  # noqa: E402
 HOST = '127.0.0.1'
-PORT = int(os.environ.get('FINANCEHUB_PORT', '5000'))
+PORT = hub_paths.PORT
 URL = f'http://{HOST}:{PORT}/'
-LOG_DIR = BASE / 'logs'
-BACKUP_DIR = BASE / 'backups'
+DATA_ROOT = hub_paths.DATA_ROOT
+LOG_DIR = hub_paths.LOG_DIR
+BACKUP_DIR = hub_paths.BACKUP_DIR
 KEEP_BACKUPS = 10
 RUN_KEY = r'Software\Microsoft\Windows\CurrentVersion\Run'
 RUN_NAME = 'FinanceHub'
@@ -40,7 +42,7 @@ log = logging.getLogger('financehub')
 
 # ── logging ─────────────────────────────────────────────────────────────────
 def setup_logging():
-    LOG_DIR.mkdir(exist_ok=True)
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
     h = logging.handlers.RotatingFileHandler(LOG_DIR / 'hub.log', maxBytes=1_000_000, backupCount=5, encoding='utf-8')
     h.setFormatter(logging.Formatter('%(asctime)s %(levelname)-7s %(name)s: %(message)s'))
     root = logging.getLogger()
@@ -89,7 +91,7 @@ def running_hub():
 
 # ── backups when the version changes ────────────────────────────────────────
 def backup_on_upgrade():
-    data = BASE / 'data'
+    data = DATA_ROOT / 'data'
     marker = data / '.version'
     if not data.is_dir() or not any(data.glob('*.enc')):
         data.mkdir(exist_ok=True)               # fresh install: remember the version so the next start makes no backup
@@ -105,11 +107,12 @@ def backup_on_upgrade():
     for d in data.glob('*_files'):              # encrypted mail attachments waiting for review
         if d.is_dir():
             shutil.copytree(d, dest / d.name)
-    if (BASE / 'users.json').exists():
-        shutil.copy2(BASE / 'users.json', dest / 'users.json')
+    if (DATA_ROOT / 'users.json').exists():
+        shutil.copy2(DATA_ROOT / 'users.json', dest / 'users.json')
     (dest / 'FROM_VERSION.txt').write_text(f'Data as used by Finance Hub {last or "an earlier version"} — still encrypted.\n')
     marker.write_text(VERSION)
-    olds = sorted(p for p in BACKUP_DIR.iterdir() if p.is_dir())
+    import re
+    olds = sorted(p for p in BACKUP_DIR.iterdir() if p.is_dir() and re.match(r'\d{4}-\d{2}-\d{2}_\d{6}_before_', p.name))
     for p in olds[:-KEEP_BACKUPS]:
         shutil.rmtree(p, ignore_errors=True)
     log.info('Encrypted data backed up to %s (version %s → %s)', dest.name, last or '?', VERSION)

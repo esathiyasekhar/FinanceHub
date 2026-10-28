@@ -26,11 +26,16 @@
                 {% for k, v in ROLES.items() %}<option value="{{ k }}" {{ 'selected' if u.role == k }}>{{ v }}</option>{% endfor %}</select></form>{% else %}{{ ROLES[u.role] }}{% endif %}</td>
             <td class="muted" style="font-size:.78rem">{{ (u.created or '')[:10] }}</td>
             <td class="muted" style="font-size:.78rem">{{ (u.last_login or '—')[:16]|replace('T', ' ') }}</td>
-            <td class="text-end text-nowrap">
-              {% if name == current_user %}<button class="btn btn-sm btn-soft" data-bs-toggle="collapse" data-bs-target="#pw-{{ loop.index }}">Change password</button>{% endif %}
+            <td class="text-end"><div class="d-flex flex-column align-items-end gap-1">
+              {% if name == current_user %}<button class="btn btn-sm btn-soft" data-bs-toggle="collapse" data-bs-target="#pw-{{ loop.index }}">Change password</button>
+                <button class="btn btn-sm btn-soft" data-bs-toggle="collapse" data-bs-target="#id-{{ loop.index }}">Change user ID</button>{% endif %}
+              {% if name != current_user and is_admin %}
+                {% if can_reset.get(name) %}<button class="btn btn-sm btn-soft" data-bs-toggle="collapse" data-bs-target="#rs-{{ loop.index }}" title="Set a temporary password, or a new user ID">Reset…</button>
+                {% else %}<span class="muted" style="font-size:.72rem" title="Password reset becomes available once this user has logged in with this version">reset after their next log-in</span>{% endif %}
+              {% endif %}
               {% if name != current_user and is_admin %}<form method="post" action="{{ url_for('user_remove') }}" class="d-inline" onsubmit="return confirm('Remove {{ name }} and permanently erase their data?')">
                 <input type="hidden" name="username" value="{{ name }}"><button class="btn btn-sm btn-soft text-danger"><i class="bi bi-trash"></i></button></form>{% endif %}
-            </td></tr>
+            </div></td></tr>
           {% if name == current_user %}<tr class="collapse" id="pw-{{ loop.index }}"><td colspan="5">
             <form method="post" action="{{ url_for('user_save') }}" class="row g-2 align-items-end">
               <input type="hidden" name="username" value="{{ name }}"><input type="hidden" name="action" value="password">
@@ -38,6 +43,24 @@
               <div class="col-md-3"><label class="form-label">New password</label><input name="password" type="password" class="form-control form-control-sm" required minlength="10"></div>
               <div class="col-md-3"><label class="form-label">Again</label><input name="password2" type="password" class="form-control form-control-sm" required></div>
               <div class="col-md-2"><button class="btn btn-sm btn-primary w-100">Change</button></div>
+            </form></td></tr>
+          <tr class="collapse" id="id-{{ loop.index }}"><td colspan="5">
+            <form method="post" action="{{ url_for('user_save') }}" class="row g-2 align-items-end">
+              <input type="hidden" name="username" value="{{ name }}"><input type="hidden" name="action" value="rename">
+              <div class="col-md-4"><label class="form-label">New user ID</label><input name="new_username" class="form-control form-control-sm" required minlength="3" maxlength="40"></div>
+              <div class="col-md-4"><label class="form-label">Your password</label><input name="current" type="password" class="form-control form-control-sm" required></div>
+              <div class="col-md-4"><button class="btn btn-sm btn-primary w-100">Change user ID</button></div>
+              <div class="col-12 muted" style="font-size:.72rem">Your data, name and recovery key stay as they are; only what you type to log in changes.</div>
+            </form></td></tr>{% endif %}
+          {% if name != current_user and is_admin and can_reset.get(name) %}<tr class="collapse" id="rs-{{ loop.index }}"><td colspan="5">
+            <form method="post" action="{{ url_for('user_save') }}" class="row g-2 align-items-end" autocomplete="off">
+              <input type="hidden" name="username" value="{{ name }}">
+              <div class="col-md-3"><label class="form-label">New user ID (optional)</label><input name="new_username" class="form-control form-control-sm" placeholder="{{ name }}"></div>
+              <div class="col-md-3"><label class="form-label">Temporary password</label><input name="password" type="password" class="form-control form-control-sm" required minlength="10" autocomplete="new-password"></div>
+              <div class="col-md-3"><label class="form-label">Again</label><input name="password2" type="password" class="form-control form-control-sm" required autocomplete="new-password"></div>
+              <div class="col-md-3"><button class="btn btn-sm btn-primary w-100" name="action" value="reset"
+                onclick="if(this.form.new_username.value.trim()){this.value='rename_other'}">Set</button></div>
+              <div class="col-12 muted" style="font-size:.72rem">{{ name }} logs in with the temporary password and must then choose their own.</div>
             </form></td></tr>{% endif %}
         {% endfor %}
         </tbody></table></div>
@@ -51,7 +74,9 @@
         <div class="col-md-1"><button class="btn btn-sm btn-primary w-100" title="Add user"><i class="bi bi-person-plus"></i></button></div>
       </form>{% endif %}
       <div class="muted mt-2" style="font-size:.74rem">Each user has their own encrypted data — users never see each other's accounts.
-        A new user starts empty and gets their own recovery key at first log in. Removing a user erases their data.</div>
+        A new user starts empty and gets their own recovery key at first log in. Removing a user erases their data.
+        {% if escrow %}<br><i class="bi bi-key me-1"></i>Administrators can reset another user's password (and so could open that user's data);
+        everyone else's data stays private to them.{% endif %}</div>
     </div>
   </div>
   <div class="col-lg-5">
@@ -80,7 +105,7 @@
         <button class="btn btn-sm btn-soft"><i class="bi bi-{{ 'toggle-on text-success' if hub_autostart else 'toggle-off' }} me-1"></i>Start with Windows: {{ 'on' if hub_autostart else 'off' }}</button></form>{% endif %}
     </div>
     {% if is_admin %}<div class="hub-card {{ 'tone-amber' if copies else 'tone-green' }}">
-      <h6><i class="bi bi-file-earmark-x me-2 t-tone"></i>Unencrypted copies in the app folder</h6>
+      <h6><i class="bi bi-file-earmark-x me-2 t-tone"></i>Unencrypted copies in the data folder</h6>
       {% if copies %}
       <div class="muted mb-2" style="font-size:.78rem">Old databases, backups and uploaded statements are not encrypted. Remove them so a copied folder reveals nothing.</div>
       <form method="post" action="{{ url_for('plain_cleanup') }}" onsubmit="return confirm('Overwrite and delete the ticked files? This cannot be undone.')">

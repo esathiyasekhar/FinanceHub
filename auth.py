@@ -17,7 +17,7 @@ def _hold_key(rk):
     return t
 
 
-OPEN_ENDPOINTS = {'login', 'setup', 'recover', 'static', 'logout', 'healthz', 'app_stopped'}
+OPEN_ENDPOINTS = {'login', 'setup', 'recover', 'static', 'logout', 'healthz', 'app_stopped', 'setup_restore'}
 
 
 def register(app, V, prepare_db):
@@ -42,7 +42,10 @@ def register(app, V, prepare_db):
             V.last = time.time()
         g.user = session['user']
         g.role = V.role(session['user'])
-        if ep in ('user_remove', 'security_settings', 'plain_cleanup') or (ep == 'user_save' and request.form.get('action') in ('add', 'role')):
+        if V.must_change(session['user']) and ep not in ('change_password', 'logout', 'static', 'healthz'):
+            return redirect(url_for('change_password'))          # 1.7: an administrator reset this password
+        if ep in ('user_remove', 'security_settings', 'plain_cleanup') or \
+                (ep == 'user_save' and request.form.get('action') in ('add', 'role', 'reset', 'rename_other')):
             if g.role != 'admin':
                 flash('Only an administrator can add or remove users.', 'warning')
                 return redirect(url_for('users_page'))
@@ -137,9 +140,24 @@ def register(app, V, prepare_db):
 
     def users_page():
         doc = V.users_doc()
+        if g.role == 'admin' and doc.get('escrow') and doc['users'][V.user].get('escrow_key'):
+            with V.lock:                         # 1.7: other administrators get the password-reset key too
+                doc = V.users_doc()
+                changed = False
+                for name, u in doc['users'].items():
+                    if u.get('role') == 'admin' and not u.get('escrow_key') and u.get('escrow_dek'):
+                        try:
+                            V.grant_reset_key(doc, name)
+                            changed = True
+                        except Exception:  # noqa: BLE001
+                            pass
+                if changed:
+                    V.save_users(doc)
+        can_reset = {name: V.can_reset(name) for name in doc['users']} if g.role == 'admin' else {}
         return render_template('users.html', users=doc['users'], ROLES=VT.ROLES, recovery=doc['users'][V.user].get('recovery'),
                                idle=V.idle_minutes(), copies=[str(p.relative_to(V.base)) for p in VT.plaintext_copies(V.base)],
-                               enc_size=V.enc_path.stat().st_size if V.enc_path.exists() else 0, is_admin=g.role == 'admin')
+                               enc_size=V.enc_path.stat().st_size if V.enc_path.exists() else 0, is_admin=g.role == 'admin',
+                               can_reset=can_reset, escrow=bool(doc.get('escrow')))
 
     def user_save():
         f = request.form
@@ -156,13 +174,27 @@ def register(app, V, prepare_db):
                 if err:
                     raise ValueError(err)
                 if u != session.get('user'):
-                    raise ValueError('each user changes their own password (or uses their recovery key)')
-                ok, _ = V.login(u, f.get('current', ''))
-                if not ok:
+                    raise ValueError('each user changes their own password (an administrator can reset it)')
+                if not V.check_password(u, f.get('current', '')):
                     raise ValueError('current password is wrong')
-                session['vault'] = V.nonce
                 V.set_password(u, f['password'])
                 flash(f'Password changed for {u}.', 'success')
+            elif act == 'rename':                                  # 1.7: change your own user ID
+                new = V.rename_user(session.get('user'), f.get('new_username', ''), f.get('current', ''))
+                session['user'] = new
+                flash(f'Your user ID is now {new} — use it the next time you log in.', 'success')
+            elif act == 'reset':                                   # 1.7: administrator sets a temporary password
+                err = _check_new(u, f.get('password', ''), f.get('password2', ''))
+                if err:
+                    raise ValueError(err)
+                V.admin_reset_password(u, f['password'])
+                flash(f'New password set for {u}. Give it to them; they must choose their own at the next log-in.', 'success')
+            elif act == 'rename_other':
+                err = _check_new(f.get('new_username', ''), f.get('password', ''), f.get('password2', ''))
+                if err:
+                    raise ValueError(err)
+                new = V.rename_user(u, f.get('new_username', ''), f['password'])
+                flash(f'{u} is now {new}, with the new password you gave. They choose their own at the next log-in.', 'success')
             elif act == 'role':
                 V.set_role(u, f.get('role'))
                 flash(f'{u} is now: {VT.ROLES[f.get("role")]}.', 'success')
@@ -180,6 +212,21 @@ def register(app, V, prepare_db):
         except ValueError as e:
             flash(f'Not removed: {e}', 'warning')
         return redirect(url_for('users_page'))
+
+    def change_password():
+        """1.7: after an administrator reset — the user chooses their own password before anything else."""
+        if request.method == 'POST':
+            u = session.get('user')
+            err = _check_new(u, request.form.get('password', ''), request.form.get('password2', ''))
+            if not err and not V.check_password(u, request.form.get('current', '')):
+                err = 'The temporary password is wrong.'
+            if err:
+                flash(err, 'warning')
+            else:
+                V.set_password(u, request.form['password'])
+                flash('Password changed.', 'success')
+                return redirect(url_for('home'))
+        return render_template('auth_change.html', user=session.get('user'))
 
     def recovery_new():
         session['show_recovery'] = _hold_key(V.new_recovery())
@@ -212,6 +259,7 @@ def register(app, V, prepare_db):
         return redirect(safe_next(request.form.get('next'), url_for('people_page')))
 
     for rule, ep, fn, methods in [
+        ('/account/password', 'change_password', change_password, ['GET', 'POST']),
         ('/setup', 'setup', setup, ['GET', 'POST']),
         ('/setup/recovery-key', 'recovery_show', recovery_show, ['GET']),
         ('/login', 'login', login, ['GET', 'POST']),

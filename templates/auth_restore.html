@@ -1,0 +1,15 @@
+{% extends "auth_base.html" %}
+{% block title %}Restore from a backup – Finance Hub{% endblock %}
+{% block sub %}Bring your data to this computer{% endblock %}
+{% block body %}
+<p style="font-size:.86rem">Choose a Finance Hub backup file (<code>.fhb</code>) — from OneDrive, Google Drive, a USB drive or a download —
+  and type the password you had when it was made (or your recovery key).</p>
+<form method="post" enctype="multipart/form-data">
+  <label class="form-label">Backup file</label>
+  <input type="file" name="file" accept=".fhb" class="form-control mb-3" required>
+  <label class="form-label">Password (or recovery key)</label>
+  <input name="password" type="password" class="form-control mb-4" required autocomplete="current-password">
+  <button class="btn btn-cta w-100"><i class="bi bi-arrow-counterclockwise me-1"></i>Restore</button>
+</form>
+<div class="mt-3" style="font-size:.8rem"><a href="{{ url_for('setup') }}">Start fresh instead</a></div>
+{% endblock %}

@@ -1,0 +1,16 @@
+{% extends "auth_base.html" %}
+{% block title %}Choose your password – Finance Hub{% endblock %}
+{% block sub %}Your administrator set a temporary password{% endblock %}
+{% block body %}
+<p style="font-size:.86rem">Hello <b>{{ user }}</b>. Your password was reset by an administrator. Choose your own password now —
+  nobody else will know it.</p>
+<form method="post" autocomplete="off">
+  <label class="form-label">Temporary password</label>
+  <input name="current" type="password" class="form-control mb-3" required autocomplete="current-password">
+  <label class="form-label">New password (10+ characters, mix of letters, numbers, symbols)</label>
+  <input name="password" type="password" class="form-control mb-3" required minlength="10" autocomplete="new-password">
+  <label class="form-label">New password again</label>
+  <input name="password2" type="password" class="form-control mb-4" required autocomplete="new-password">
+  <button class="btn btn-cta w-100">Save my password</button>
+</form>
+{% endblock %}

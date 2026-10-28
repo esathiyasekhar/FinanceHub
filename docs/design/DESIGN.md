@@ -1,8 +1,8 @@
 # Finance Hub — Design manual
 
-Version 1.6 · 28 October 2026 · Statement Reader engine v14 · internal, for maintainers
+Version 1.7 · 28 October 2026 · Statement Reader engine v14 · internal, for maintainers
 
-This manual explains how Finance Hub is built and why. It is written for developers and for an AI assistant continuing the work, and describes the 1.6 code in this repository. When code and manual disagree, the code wins and the manual is corrected in the same change. The user manual (docs/user/) covers the same features from the user's side.
+This manual explains how Finance Hub is built and why. It is written for developers and for an AI assistant continuing the work, and describes the 1.7 code in this repository. When code and manual disagree, the code wins and the manual is corrected in the same change. The user manual (docs/user/) covers the same features from the user's side.
 
 > **Note:** Names of modules, functions, tables and columns are written exactly as in the code. Examples use made-up values.
 
@@ -17,11 +17,14 @@ Finance Hub is a personal-finance web app for one person or one family. It reads
 - Prove the numbers: balance checks for statements, totals checks for contract notes, depository-versus-broker reconciliation.
 - Organise money by Type › Head › Sub-head › Item, by book (personal or the owner's company), person and account, counting each transfer once.
 - Run in the background (tray, start with Windows) and mail due-date reminders.
+- Install like a Windows program: program in Program Files, data in a separate folder; upgrade by running the newer setup; uninstall without touching the data (1.7).
+- Encrypted backups the user can keep off the PC (OneDrive, Google Drive or any folder) and restore on the same or a new PC (1.7).
+- Let an administrator help a user who lost both password and recovery key, with the trade-off disclosed to every user (key escrow, 1.7).
 - No personal data in the program: names, numbers, companies and personal payee rules live only in the encrypted database.
 
 ### 1.2 Non-goals
 
-- No cloud, no sync, no mobile app, no aggregation APIs. The Hub connects only to the user's own mailbox (IMAP/SMTP over TLS) and, on request, to Yahoo Finance through the optional yfinance package. The browser loads UI libraries from CDNs (11.4).
+- No cloud service of its own, no sync, no mobile app, no aggregation APIs. Backups are files written into a local folder; when that folder belongs to OneDrive or Google Drive, their desktop app uploads it. The Hub never calls a cloud API. It connects only to the user's own mailbox (IMAP/SMTP over TLS; problem reports also go out through that SMTP account) and, on request, to Yahoo Finance through the optional yfinance package. The browser loads UI libraries from CDNs (11.4).
 - No multi-tenant server: several users may exist, but one database is open at a time.
 - No payments, no writes to banks or brokers, no opening of links in mails, no tax filing (itr.py is a reference summary).
 
@@ -31,11 +34,12 @@ Finance Hub is a personal-finance web app for one person or one family. It reads
 
 ```
 FinanceHub.pyw  (pythonw.exe, no console)
- |-- running_hub(): does http://127.0.0.1:<port>/healthz answer "FinanceHub"?
- |-- backup_on_upgrade(): copy data/ to backups/ when the version changed
- |-- import app                Flask app + Vault, all modules registered
+ |-- hub_paths: PROGRAM_DIR, DATA_ROOT, LOG_DIR, BACKUP_DIR, PORT (section 3.2)
+ |-- running_hub(): does http://127.0.0.1:<PORT>/healthz answer "FinanceHub"?
+ |-- backup_on_upgrade(): copy <data>/data to <data>/backups when the version changed
+ |-- import app                Flask app + Vault(DATA_ROOT), all modules registered
  |-- Server.start()            thread "hub-server"
- |      Waitress create_server(host=127.0.0.1, port=5000, threads=1)
+ |      Waitress create_server(host=127.0.0.1, port=PORT, threads=1)
  |      or Werkzeug make_server(threaded=False) if waitress is missing
  |-- notify.start_scheduler()  thread "hub-reminders": tick() every 60 s
  |-- webbrowser.open(URL)      skipped with --background (autostart)
@@ -43,7 +47,7 @@ FinanceHub.pyw  (pythonw.exe, no console)
         Open | Lock now | Start with Windows | Open logs folder | Quit
 ```
 
-The launcher logs to logs/hub.log (rotating, 1 MB × 5; stdout and stderr redirected under pythonw). running_hub() returns 'hub' (open the browser and exit, so a second start only opens the page), 'other' (port taken: message box; FINANCEHUB_PORT changes the port) or '' (start). It passes hooks through app.config: HUB_LAUNCHER, HUB_SHUTDOWN, HUB_AUTOSTART_GET and HUB_AUTOSTART_SET (HKCU Run value FinanceHub with --background) and HUB_SERVER. Quit, from the tray or the Hub's power button, calls V.lock_now(), stops server and tray and ends with os._exit(0). Without a tray the main thread waits for the Hub's Quit button. `python app.py` runs Werkzeug (threaded=False) plus the scheduler; app_quit then only explains how to stop it.
+The launcher logs to <data folder>/logs/hub.log (hub_paths.LOG_DIR; rotating, 1 MB × 5; stdout and stderr redirected under pythonw). running_hub() returns 'hub' (open the browser and exit, so a second start only opens the page), 'other' (port taken: message box; FINANCEHUB_PORT or the port in financehub.json changes it) or '' (start). It passes hooks through app.config: HUB_LAUNCHER, HUB_SHUTDOWN, HUB_AUTOSTART_GET and HUB_AUTOSTART_SET (HKCU Run value FinanceHub with --background) and HUB_SERVER. Quit, from the tray or the Hub's power button, calls V.lock_now(), stops server and tray and ends with os._exit(0). Without a tray the main thread waits for the Hub's Quit button. `python app.py` runs Werkzeug (threaded=False) on hub_paths.PORT plus the scheduler; app_quit then only explains how to stop it.
 
 Why one worker thread: the database is a single in-memory SQLite connection (section 4). Serving one request at a time means no request ever shares it with another, so there is no per-request locking and no pool. The cost: a slow request (IMAP check, big PDF) blocks the UI.
 
@@ -53,7 +57,7 @@ Why one worker thread: the database is a single in-memory SQLite connection (sec
 |---|---|---|
 | hub-server | all HTTP requests, one at a time | shared connection via Conn |
 | main (tray) | menu actions | lock_now() only, under Vault.lock |
-| hub-reminders | notify.tick(): maybe_rebuild(), run_due() | private copy from notify.snapshot_con() |
+| hub-reminders | notify.tick(): EXTRA_TICKS (auth.idle_watch, backup.run_due), then maybe_rebuild(), run_due() | private copy from notify.snapshot_con(); idle_watch calls lock_now() and backup.make_backup calls V.persist(), both under V.lock on the shared connection |
 | timers | delayed browser open and quit | none |
 
 ### 2.3 Request flow
@@ -63,15 +67,21 @@ Why one worker thread: the database is a single in-memory SQLite connection (sec
 3. The view calls get_db() (app.py): a Conn proxy with row_factory sqlite3.Row, cached in g._database. Modules receive get_db in register(); some helpers call dbconn.connect(), which returns the same kind of proxy.
 4. Templates extend base.html. Context processors add versions and FY label (inject_fy), user and display name (auth), Viewing-filter lists (scope), mail badge (mailreader), payers (ledger), help topic (help_hub) and launcher state (_runtime_ctx).
 5. teardown_appcontext close_db rolls back if the request raised, calls V.persist() and, if something was written, notify.mark_dirty().
+6. An unhandled exception reaches support's errorhandler(500): Flask has already logged the traceback; the handler logs "Error reference <ref>" and renders auth_error.html with the reference and a Report this problem link (12.2).
 
 ### 2.4 Module map
 
 | Module | Responsibility | Main tables | Routes |
 |---|---|---|---|
-| FinanceHub.pyw | launcher: single instance, upgrade backup, server, scheduler, tray, autostart | — | calls /healthz |
-| app.py | Flask app, Vault, get_db, close_db, prepare_db; Insights, statement import, passwords, EMI actions, Reports page, launcher routes | transactions, accounts, passwords, loans | /insights, /import…, /passwords…, /loans/…, /reports…, /api/summary, /api/category_data, /healthz, /app/quit, /app/stopped, /app/autostart |
-| vault.py | users, key wrapping, encrypted file, in-memory SQLite, sealing, secure delete | users.json, data/<hex>.enc | — |
-| auth.py | guard, setup, log-in, recovery, users, profile | hub_settings | /setup…, /login, /logout, /recover, /users…, /profile/save |
+| FinanceHub.pyw | launcher: single instance, upgrade backup, server, scheduler, tray, autostart; paths and port from hub_paths | — | calls /healthz |
+| hub_paths.py | program folder vs data folder: PROGRAM_DIR, CONFIG_FILE (financehub.json), DATA_ROOT, UPLOAD_DIR, LOG_DIR, BACKUP_DIR, PORT, INSTALLED (3.2) | financehub.json | — |
+| app.py | Flask app, Vault(DATA_ROOT), get_db, close_db, prepare_db; Insights, statement import, passwords, EMI actions, Reports page, launcher routes; registers backup, support and welcome | transactions, accounts, passwords, loans | /insights, /import…, /passwords…, /loans/…, /reports…, /api/summary, /api/category_data, /healthz, /app/quit, /app/stopped, /app/autostart |
+| vault.py | users, key wrapping, encrypted file, in-memory SQLite, sealing, secure delete; key escrow, admin reset, rename_user, check_password (4.9) | users.json, data/<hex>.enc | — |
+| auth.py | guard (incl. must_change), setup, log-in, recovery, users (password, user-ID change, admin reset), forced password change, profile | hub_settings | /setup, /setup/recovery-key, /login, /logout, /recover, /users…, /account/password, /profile/save |
+| welcome.py | first-start setup wizard: about you, mail, features, accounts, backup; needed() (11.5) | hub_settings, entities, mail_settings, notify_settings; users.json backup | /welcome, /welcome/<name> |
+| backup.py | .fhb backup and restore, cloud-folder detection, automatic backups through notify.EXTRA_TICKS, first-start restore (4.10, 4.11) | users.json backup | /backup, /backup/save, /backup/now, /backup/download, /backup/restore, /setup/restore |
+| support.py | Report a problem: diagnostics, scrubbed log lines, preview, send by SMTP / mailto / file; errorhandler(500) with error reference (12.2) | reads mail_settings, notify_settings, counts | /support, /support/send |
+| installer/ | Windows setup: setup.pyw (tkinter wizard and command line), Setup.cmd, optional Inno Setup wrapper (14.5) | — | — |
 | dbconn.py | connection source; sealed JSON files | — | — |
 | importer.py | bank and card statements: preview, confirm, accounts, loans | statements | via /import/preview, /import/password, /import/confirm |
 | statement_reader/ | PDF statement engine. Exported from the separate Statement Reader desktop app by its tools/export_engine.py; never edited in the Hub | — | — |
@@ -92,8 +102,8 @@ Why one worker thread: the database is a single in-memory SQLite connection (sec
 | itr.py | FY options, ITR summary, FIFO capital gains | (reads) | used by /reports |
 | compounding.py | Wealth planner storage and Hub figures | cc_users, cc_actuals | /planner, /api/cc/… |
 | help_hub.py | user and design manuals, Markdown subset, PDF | docs/ files | /help, /help/<topic>, /help/find, /help/manual.pdf, /help/internal/design(.pdf) |
-| hub_version.py | APP_NAME, VERSION, RELEASE_DATE | — | — |
-| features.py | per-user feature switches (hub_settings.features_off / features_done), welcome step, nav / search / route hiding, "add a missing account" | hub_settings | /features, /features/save |
+| hub_version.py | APP_NAME, VERSION, RELEASE_DATE, SUPPORT_EMAIL | — | — |
+| features.py | per-user feature switches (hub_settings.features_off / features_done), Home redirect to the setup wizard, nav / search / route hiding, "add a missing account" | hub_settings | /features, /features/save |
 | webutil.py | safe_next(): only local redirect targets | — | — |
 | parsers/ | CSV, XLSX, XLS bank exports (auto_parse), legacy categorize() | — | — |
 
@@ -101,33 +111,69 @@ reports/generator.py (legacy monthly workbook) serves /reports/download.
 
 ## 3. Repository layout and runtime folders
 
+### 3.1 Repository
+
 ```
-FinanceHub.pyw  app.py auth.py vault.py dbconn.py hub_version.py
+FinanceHub.pyw  app.py auth.py vault.py dbconn.py hub_version.py hub_paths.py
 importer.py classifier.py organise.py scope.py accounts_hub.py planning.py
 ledger.py refunds.py investments.py assets.py depository.py compounding.py
-mailreader.py notify.py reports_hub.py itr.py help_hub.py
+mailreader.py notify.py reports_hub.py itr.py help_hub.py features.py
+welcome.py backup.py support.py webutil.py
 statement_reader/   engine copy (parsers/, utils/, tools/, version.py)
 contract_notes/     parsers/     reports/
 templates/          base.html + one template per page
 static/             hub.ico, hub.png, planner/ (calculator.js, planner.js)
+installer/          setup.pyw Setup.cmd FinanceHub_Setup.iss build_exe.bat
+                    README.txt hub.ico
 docs/user/          manual chapters NN-slug.md     docs/design/  DESIGN.md
-tests/              synthetic-data tests (not shipped)
+tests/              synthetic-data tests, _tkstub/ (not shipped)
 tools/              make_release.py upgrade.py shortcuts.py test_contract_note.py
 install.bat run.bat requirements.txt CHANGELOG.md .gitignore
 ```
 
+installer/ is part of the release zip (it is not in SKIP_DIRS), so an installed program folder also holds it; setup copies its own setup.pyw and Setup.cmd there as well, for repair and uninstall.
+
+### 3.2 Program folder and data folder (hub_paths.py)
+
+Since 1.7 the program and the data live in separate folders. hub_paths is imported first by app.py, FinanceHub.pyw and tools/upgrade.py and resolves:
+
+| Name | Resolution |
+|---|---|
+| PROGRAM_DIR | the folder of hub_paths.py |
+| CONFIG_FILE | PROGRAM_DIR/financehub.json, written by setup: {"data_dir": "<folder>", "port": 5000} |
+| DATA_ROOT | env FINANCEHUB_DATA, else config data_dir, else PROGRAM_DIR (portable copy, tests); created at import (errors ignored) |
+| UPLOAD_DIR, LOG_DIR, BACKUP_DIR | DATA_ROOT/uploads, /logs, /backups |
+| PORT | env FINANCEHUB_PORT, else config port, else 5000 |
+| INSTALLED | CONFIG_FILE exists (reported in problem reports) |
+
+Users: app.py (Vault(DATA_ROOT); DB_PATH and STMT_DIR under DATA_ROOT; UPLOAD_DIR; BACKUP_DIR for the Running card; PORT for `python app.py`), FinanceHub.pyw (PORT, LOG_DIR, BACKUP_DIR, DATA_ROOT/data for the upgrade backup), tools/upgrade.py (DATA, port; falls back to the program folder when hub_paths cannot be imported), backup.py (BACKUP_DIR for safety copies) and support.py (LOG_DIR, INSTALLED). BASE_DIR in app.py is PROGRAM_DIR: templates, static files and docs/ are read from the program folder. app._statement_folders() reads DATA_ROOT/statements, PROGRAM_DIR/statements and the statements folder next to the program folder.
+
+Program folder (installed, e.g. C:\Program Files\Finance Hub; the whole repository folder for a portable copy):
+
+| Path | Contents | git |
+|---|---|---|
+| program files | written by setup or upgrade.py from the release zip | tracked |
+| MANIFEST.sha256 | the release's manifest, used to find stale files at the next upgrade | only in releases and installs |
+| financehub.json | data_dir and port (installed copies only) | ignored, excluded from releases |
+| .venv/ | the Hub's Python environment (setup or install.bat) | ignored |
+| requirements.lock | pip freeze of .venv | ignored |
+| installer/ | setup.pyw, Setup.cmd (for Settings › Apps uninstall), README, .iss | tracked |
+| dist/ | release zip, Setup zip and .sha256 files (development only) | ignored |
+
+Data folder (DATA_ROOT; e.g. D:\Finance Hub, or the program folder for a portable copy):
+
 | Runtime path | Contents | git |
 |---|---|---|
 | data/ | <hex>.enc, .enc.prev, .enc.tmp (while saving), <hex>_files/ (sealed mail files), <hex>.outbox, <hex>.sent.json, .version (launcher marker) | ignored |
-| users.json | user records (4.3) | ignored |
+| users.json | user records, escrow, backup settings (4.2) | ignored |
 | uploads/ | files being previewed, .pending/ (sealed statement previews), .inv_pending/ (broker files, sealed previews), mail temp files | ignored |
-| backups/ | <date>_before_<version>/ encrypted copies | ignored |
+| backups/ | <date>_before_<version>/ encrypted copies; Finance Hub backups/ (safety .fhb files written before a restore) | ignored |
 | logs/ | hub.log and rotations | ignored |
-| .venv/ | the Hub's Python environment (install.bat) | ignored |
-| dist/ | release zip and .sha256 | ignored |
 | statements/ | optional statement folder read by Reset and reload | ignored |
 
-.gitignore also excludes .enc and .enc.prev files, finance.db and other .db or .sqlite files, __pycache__, .pyc files and requirements.lock.
+The user's own backups (.fhb) go to a folder they choose, normally outside both (4.10).
+
+.gitignore also excludes .enc and .enc.prev files, finance.db and other .db or .sqlite files, __pycache__, .pyc files, requirements.lock and financehub.json.
 
 ## 4. Storage and encryption (vault.py)
 
@@ -140,6 +186,9 @@ install.bat run.bat requirements.txt CHANGELOG.md .gitignore
 | data/<hex>_files/mail_<id>.bin or .txt | b'FHBLOB1' + nonce + AES-GCM(zlib bytes), AAD 'blob' | DEK |
 | data/<hex>.outbox | b'FHOUTBOX1' + DPAPI blob | Windows account |
 | data/<hex>.sent.json | plain JSON, hashed keys only | none |
+| users.json escrow_dek | b64 RSA-OAEP(SHA-256, MGF1-SHA-256, label b'FinanceHub') of the DEK | escrow private key |
+| users.json escrow_key | b64(nonce + AES-GCM(admin's DEK, PKCS8 PEM of the escrow private key)), AAD b'escrow' | that admin's DEK |
+| <chosen folder>/Finance Hub backups/*.fhb | zip of manifest.json, user.json (plain), db.enc and files/ copied as on disk (4.10) | DEK, reached via the wrapped keys in user.json |
 
 <hex> is secrets.token_hex(8), so file names say nothing about users.
 
@@ -149,21 +198,30 @@ recovery key (normalised)  --PBKDF2-HMAC-SHA256(own salt)-->     RKEK
 DEK = 32 random bytes per user
 users.json key      = b64(nonce + AES-GCM(KEK,  DEK, aad = user ID))
 users.json recovery = b64(nonce + AES-GCM(RKEK, DEK, aad = b"recovery"))
+escrow pair         = RSA-3072, one per installation; public PEM in users.json
+users.json escrow_dek = b64(RSA-OAEP-SHA256(public, DEK, label = b"FinanceHub"))
+users.json escrow_key = b64(nonce + AES-GCM(admin DEK, private PEM, aad = b"escrow"))
 ```
 
-Password change and recovery only rewrap the DEK (_rewrap); the database is not re-encrypted. Iterations are stored per entry and _rewrap writes the current ITERATIONS, so the cost can be raised later. For unknown user IDs a PBKDF2 still runs (equal timing). The user ID is the AAD, so it cannot be renamed without rewrapping; no rename exists.
+Password change and recovery only rewrap the DEK (_rewrap); the database is not re-encrypted. Iterations are stored per entry and _rewrap writes the current ITERATIONS, so the cost can be raised later. For unknown user IDs a PBKDF2 still runs (equal timing). The user ID is the AAD of the password-wrapped key, so rename_user rewraps the DEK under the new ID (5.2); the recovery wrap (AAD b"recovery"), escrow_dek and escrow_key do not depend on the ID. The DEK itself never changes: password change, recovery, admin reset and rename only rewrap it, so every past backup of a user stays decryptable with that user's DEK.
 
 ### 4.2 users.json
 
 ```
 {"version": 2, "settings": {"idle_minutes": 30},
+ "escrow": {"public": "<PEM>", "created": "<iso>"},
  "users": {"<user ID>": {"salt": "<b64>", "iterations": 600000, "role": "admin",
    "db": "<16 hex>.enc", "key": "<b64>",
-   "recovery": {"salt": "<b64>", "iterations": 600000, "key": "<b64>", "created": "<iso>"},
-   "created": "<iso>", "last_login": "<iso>"}}}
+   "recovery": {"salt": "<b64>", "iterations": 600000, "key": "<b64>",
+                "created": "<iso>"},
+   "created": "<iso>", "last_login": "<iso>",
+   "escrow_dek": "<b64>", "escrow_key": "<b64>   (administrators only)",
+   "must_change": true,                       (after an admin reset)
+   "backup": {"dir": "<folder>", "every": "off|daily|weekly", "keep": 10,
+              "last": "<iso>", "last_mtime": 0.0, "last_error": ""}}}}
 ```
 
-No passwords, names or financial data; user IDs, roles and log-in times are visible. idle_minutes is global. Saved atomically (.json.tmp, os.replace).
+No passwords, names or financial data. Visible: user IDs, roles, creation and log-in times, the escrow public key, and each user's backup folder, schedule, last backup time and last error (a OneDrive path usually contains the Windows user name). idle_minutes is global. Saved atomically (.json.tmp, os.replace). Writers re-read the file and write it back under V.lock (the mutating Vault methods are @_locked; log-in, the Users-page grant and backup.save_settings take the lock too), so request and scheduler writes cannot overwrite each other.
 
 ### 4.3 The in-memory database
 
@@ -194,41 +252,101 @@ notify.save_outbox writes data/<stem>.outbox: CryptProtectData of the outbox JSO
 
 ### 4.8 Plaintext copies
 
-plaintext_copies(base) skips .venv, .git, backups, logs and other program folders and lists every unsealed file under uploads/ (sealed previews starting FHSEAL1 / FHBLOB1 are skipped) plus finance.db-style files (.db, .sqlite, .sqlite3, -wal, -shm) with an SQLite header. secure_delete overwrites with random bytes, fsyncs and unlinks — best effort on SSDs. Setup offers erasure; the Users page lists remaining copies and plain_cleanup (admin) erases them; prepare_db erases uploads older than 24 hours at each log-in.
+plaintext_copies(base) skips .venv, .git, backups, logs and other program folders and lists every unsealed file under uploads/ (sealed previews starting FHSEAL1 / FHBLOB1 are skipped) plus finance.db-style files (.db, .sqlite, .sqlite3, -wal, -shm) with an SQLite header. secure_delete overwrites with random bytes, fsyncs and unlinks — best effort on SSDs. Setup offers erasure; the Users page lists remaining copies and plain_cleanup (admin) erases them; prepare_db erases uploads older than 24 hours at each log-in. Since 1.7 base is V.base = DATA_ROOT, so an installed Hub scans its data folder, not the program folder (the card is still titled "Unencrypted copies in the app folder"). An old portable folder whose data was brought over by setup is not scanned.
+
+### 4.9 Key escrow: administrator reset (1.7)
+
+Purpose: an administrator can give a user a new password without knowing the old one or the recovery key. Cost: every administrator can obtain every user's DEK (13).
+
+- _escrow_init(doc, admin, dek): generates RSA-3072 (e = 65537); doc['escrow'] = {public PEM, created}; the admin gets escrow_key (the PKCS8 PEM wrapped with their DEK, AAD b'escrow') and escrow_dek; any old escrow_dek entries are dropped. Called by V.setup on a fresh install, and by _escrow_on_login at the first administrator log-in when users.json has no escrow (upgrade from 1.6, or after restore_fresh, which removes it).
+- _escrow_on_login(doc, user, dek), run in V.login with every exception swallowed (a log-in is never blocked): creates the escrow as above for an admin; otherwise adds escrow_dek when missing and removes escrow_key from non-admins.
+- add_user: with an escrow, the new user gets escrow_dek at once; a new admin also gets escrow_key through grant_reset_key (only if the acting admin holds escrow_key).
+- set_role: promotion calls grant_reset_key (needs the target's escrow_dek and the acting admin's escrow_key; failures ignored); demotion removes escrow_key. users_page: an admin who holds escrow_key grants it to every admin that has escrow_dek but no escrow_key, then saves.
+- _escrow_private(doc): only for the logged-in, unlocked admin with escrow_key; unwraps the PEM with V.dek. _escrow_dek_of(doc, user) RSA-decrypts that user's escrow_dek; without one: "<user> has not logged in since password reset was turned on".
+- admin_reset_password(user, new): refuses self; rewraps the DEK with the new password (_rewrap), sets must_change, clears the failed-attempts counter. can_reset(user) = escrow exists, the current user has escrow_key, the target has escrow_dek; the Users page shows Reset… or "reset after their next log-in" from it.
+- must_change is cleared by set_password and by recover().
+
+Users of a 1.6 install become resettable one by one, at their next log-in after the upgrade; users added under 1.7 at once.
+
+### 4.10 Backup files and settings (backup.py)
+
+A backup is one zip per user:
+
+```
+FinanceHub_<user ID>_<YYYY-mm-dd_HHMMSS>.fhb   (ZIP_DEFLATED; [^A-Za-z0-9._-] -> _)
+  manifest.json  {"app": "Finance Hub", "format": 1, "version", "created", "user",
+                  "sha256": {"db.enc": <hex>}, "files": {<name>: <hex>}}
+  user.json      the users.json entry, only: salt, iterations, role, db, key,
+                 recovery, created
+  db.enc         data/<hex>.enc exactly as on disk (FHUBENC1, DEK)
+  files/<name>   data/<hex>_files/* as on disk (sealed blobs, DEK)
+```
+
+Not included: escrow_dek, escrow_key, must_change, last_login, backup settings, .enc.prev, the outbox and sent log, other users. Downloads are named FinanceHub_<user ID>_<YYYY-mm-dd_HHMM>.fhb (the ID is not sanitised there).
+
+- make_backup(vault, user, dest_dir=None, keep=None): under V.lock, persist() first when that user is the one unlocked; read the entry, db and files; build the zip in memory. dest_dir None returns bytes (download). Otherwise target_dir(dest_dir) appends "Finance Hub backups" (unless the folder already has that name) and creates it; the file is written as .tmp and renamed; keep deletes the oldest FinanceHub_<user>_*.fhb beyond keep (names sort by time).
+- cloud_folders(): the OneDriveConsumer, OneDriveCommercial and OneDrive environment variables, ~/OneDrive, <letter>:\My Drive for every drive letter on Windows (Google Drive for desktop), ~/Google Drive, ~/My Drive, ~/Dropbox, and FINANCEHUB_CLOUD_DIRS (os.pathsep-separated, used by the tests). Only existing folders, de-duplicated case-insensitively.
+- Settings live in users.json users.<id>.backup, not in the database, because automatic backups run while locked: dir, every ('off', 'daily', 'weekly'; EVERY), keep (1–100, default 10), last (ISO time), last_mtime (database file mtime at that backup), last_error (up to 200 characters). settings_of() fills defaults; save_settings() merges under V.lock. backup_save validates the folder with target_dir first. The wizard's backup step saves dir, every (default weekly) and keep 10.
+- run_due(vault, now) is appended to notify.EXTRA_TICKS in register(), so it runs every 60 s on hub-reminders, locked or not, for every user: skip unless every is daily/weekly and dir is set; skip until 20 h (daily) or 6 d 12 h (weekly) after last; skip when the database mtime is not newer than last_mtime; else make_backup(keep) and record last and last_mtime, or record last_error ("<dd Mon HH:MM>: <error>").
+- backup_now does the same for the logged-in user (button disabled without dir); backup_download returns the bytes and changes no settings.
+
+### 4.11 Restore and the backup threat model
+
+- read_backup(src): requires manifest.json, user.json and db.enc; checks the sha256 of db.enc and of every file listed in the manifest; refuses file names containing a slash or backslash, or starting with a dot. Error texts: "this is not a Finance Hub backup file", "the backup file is damaged (…)".
+- _backup_dek(vault, m, entry, db, password): (1) while unlocked, the current DEK if it decrypts db.enc; (2) PBKDF2(password, entry salt, entry iterations) unwrapping entry key with AAD = manifest user; (3) the normalised recovery key unwrapping entry recovery with AAD b'recovery'; else "that password (or recovery key) does not open this backup". Because the DEK never changes, (1) opens every backup of the logged-in user, whatever their password was then; (2) and (3) matter only when the DEK differs (another or re-created user, or a fresh install).
+- restore_mine(vault, src, password) (POST /backup/restore with a path inside the user's backup folder, or an uploaded file): decrypts db.enc as proof; refuses a backup of another database unless the user ID is the same; writes a safety backup of the current data with make_backup(…, hub_paths.BACKUP_DIR / 'before-restore', keep=10); then under V.lock re-encrypts the plaintext with the current DEK (.enc.tmp, os.replace), replaces the _files folder (re-sealing each blob under the current DEK when the keys differ: magic 7 bytes, nonce 12, AES-GCM with AAD b'blob'), closes the connection and _open()s it again. users.json is untouched, so the present password and recovery key stay valid. The view stores the new V.nonce in the session, so the user stays logged in.
+- restore_fresh(vault, src, password) (/setup/restore, an open endpoint, GET and POST, only while is_setup() is false; linked from auth_setup.html): finds the DEK with the password or recovery key of the backup, decrypts as proof, writes db.enc under entry['db'] and the files, then users.json = {manifest user: entry + role admin + last_login ''} without escrow. The user logs in with the password of the backup; the escrow is re-created at that log-in.
+
+Threat model of backups:
+
+- Confidentiality: db.enc and blobs are AES-256-GCM under the DEK; user.json holds the DEK wrapped by the password and recovery key of that time, so an attacker with the file can guess passwords offline at the PBKDF2 cost (600 000 rounds), as with users.json. manifest.json and the file name reveal the user ID, version, times and sizes.
+- Old secrets: an old backup opens with the password or recovery key valid when it was made. Since the DEK is never rotated, anyone who once learnt it (or an administrator through the escrow) can decrypt every past and future backup of that user.
+- Integrity: the sha256 values detect damage, not tampering (the manifest is not authenticated); tampering with db.enc or blobs is caught by the AES-GCM tags. user.json is not authenticated: a crafted backup can bring its own wrapped key, which only lets someone restore data they encrypted themselves.
+- restore_fresh is reachable by anyone on this PC before the first user exists, the same exposure as /setup. It accepts only a db name of 16 hex digits + .enc and a valid user ID.
+- Cloud: the Hub only writes into a local folder; the sync client, the cloud account and its 2-step verification are outside the Hub.
+- Automatic backups need no key while locked (they copy ciphertext); they never touch the shared connection (persist=False): every request has already saved its changes.
 
 ## 5. Authentication and request lifecycle (auth.py)
 
 ### 5.1 The guard
 
-OPEN_ENDPOINTS: login, setup, recover, static, logout, healthz, app_stopped. For all other endpoints _guard does:
+OPEN_ENDPOINTS: login, setup, recover, static, logout, healthz, app_stopped, setup_restore. For all other endpoints _guard does:
 
 1. No user yet: redirect to /setup.
 2. Idle time exceeded: lock_now(), clear session, flash.
 3. Locked, or session['vault'] differs from V.nonce, or no session['user']: 401 JSON for /api/ paths and JSON requests, else redirect to /login with next (GET only).
 4. V.last = now, except for mail_poll.
 5. g.user, g.role.
-6. Admin only: user_remove, security_settings, plain_cleanup, user_save with action add or role.
-7. No recovery key yet, on a GET: create one, put it in session['show_recovery'], redirect to recovery_show.
+6. must_change set for this user (an administrator reset the password): redirect to change_password, except for change_password, logout, static and healthz.
+7. Admin only: user_remove, security_settings, plain_cleanup, user_save with action add, role, reset or rename_other. (app_autostart checks the role in the view.)
+8. No recovery key yet, on a GET: create one, put it in session['show_recovery'], redirect to recovery_show.
 
 The nonce binds a browser session to one unlock; another log-in changes it and older sessions return to the log-in page.
 
 ### 5.2 Roles and flows
 
-- admin: add users, change roles, remove users (their .enc, .enc.prev and _files are secure-deleted), idle setting, plaintext clean-up, design manual. member: their own database. One admin must remain; nobody removes themselves. No admin can read or reset another user's data, because the DEK is reachable only via that user's password or recovery key.
+- admin: add users, change roles, remove users (their .enc, .enc.prev and _files are secure-deleted), reset another user's password or user ID, idle setting, plaintext clean-up, Start with Windows from the Users page, design manual. member: their own database, own password and own user ID. One admin must remain; nobody removes themselves. Through the escrow (4.9) every admin holding escrow_key can reach every other user's DEK; the Users page tells all users so ("Administrators can reset another user's password (and so could open that user's data)") whenever an escrow exists.
 - Setup: _check_new requires a user ID of 3+ characters (letters, digits, . _ -) and a password of 10+ characters using three of lower, upper, digits, symbols/space. V.setup creates the admin and database, prepare_db() builds the schema, the recovery key is shown once.
 - Log-in: V.login unwraps the DEK, prepare_db() upgrades the schema, the session gets user and nonce; next only if it starts with a single slash. From the third failure per user ID the wait is 5 s, doubling to 300 s (in memory).
 - Users added by an admin get their recovery key at their first GET. recovery_new replaces it.
-- /recover: user ID + recovery key (case, spaces, dashes ignored) + new password rewraps the DEK; the key stays valid. Password change: own account only, current password checked via V.login.
+- /recover: user ID + recovery key (case, spaces, dashes ignored) + new password rewraps the DEK and clears must_change; the key stays valid.
+- user_save actions (POST /users/save):
+  - add, role: as before; add and role also hand out escrow material (4.9).
+  - password: own account only; the current password is checked with V.check_password (no second log-in, so the session nonce is unchanged); V.set_password rewraps and clears must_change.
+  - rename: own user ID; V.rename_user(session user, new_username, current password). The new ID must match `[A-Za-z0-9._-]{3,40}` and be unused; the DEK comes from the password; the entry moves to the new key and is rewrapped with the new ID as AAD; V.user and session['user'] become the new ID. Recovery wrap, escrow_dek, escrow_key and backup settings move with the entry.
+  - reset (admin): _check_new on the temporary password, then V.admin_reset_password.
+  - rename_other (admin): _check_new(new ID, temporary password); V.rename_user(old, new, temporary password) takes the DEK from the escrow, rewraps it with the temporary password under the new ID and sets must_change. The Users page form submits reset, switched to rename_other by script when a new ID is typed.
+- /account/password (change_password, GET and POST, logged in): auth_change.html "Choose your password"; checks the temporary password with check_password and the new one with _check_new, then set_password and redirect to Home.
 - Recovery key: 28 characters from a 32-letter alphabet without I, O, 0, 1, in seven groups of four (about 140 bits).
 
 ### 5.3 Display name and user ID
 
-The user ID is typed at log-in, keys users.json and is the AAD of the wrapped DEK. The person's name is hub_settings.display_name inside the encrypted database (max 60 characters; set at setup or user creation, changed with /profile/save). auth._inject_user gives it to templates; the Hub greets with display_name, or the user ID when empty. Reason: users.json is readable by anyone with the folder, so it must hold no names (1.3).
+The user ID is typed at log-in, keys users.json and is the AAD of the wrapped DEK. Since 1.7 it can be changed (rename_user, 5.2); the database and its random file name stay the same. Backups carry the ID they were made under (4.10). The person's name is hub_settings.display_name inside the encrypted database (max 60 characters; set at setup or user creation, changed with /profile/save). auth._inject_user gives it to templates; the Hub greets with display_name, or the user ID when empty. Reason: users.json is readable by anyone with the folder, so it must hold no names (1.3).
 
 ### 5.4 mail_poll, healthz, app_quit, app_stopped
 
 - mail_poll is a background POST every 60 s. If it refreshed V.last an open tab would keep the Hub unlocked for ever, so _guard skips the activity update for it while the idle check still applies (tested in test_mail_inbox.py).
-- /healthz (open) returns "FinanceHub <version>" only; used by the launcher and tools/upgrade.py.
+- /healthz (open) returns "FinanceHub <version>" only; used by the launcher, tools/upgrade.py and installer/setup.pyw (to refuse while the Hub runs).
 - /app/quit (POST, logged in): with the launcher (HUB_SHUTDOWN) locks the vault, schedules shutdown after 0.6 s and redirects to /app/stopped (open, static page); otherwise explains how to stop the command-window server.
 - /app/autostart (POST) toggles Start with Windows through the launcher hook.
 
@@ -265,7 +383,7 @@ Account names are keys: transactions.account = accounts.name, also loans.card, s
 | app, importer | loans | lender, card (account), emi_amount, total_emis, emis_paid, first/last_emi_date, interest_rate, status, loan_ref, outstanding, last_statement_date, source, repayment (monthly/bullet) |
 | app | passwords | institution (unique), label, password, hint — statement passwords |
 | importer | statements | file_name, file_hash, bank, statement_type, accounts, period, statement and due dates, totals, check_status OK/MISMATCH/n/a, check_detail (JSON balance rows), reader_version |
-| accounts_hub | account_balances, networth_snapshots, hub_settings | manual balances (account_id, as_of); one snapshot per day; key/value (display_name) |
+| accounts_hub | account_balances, networth_snapshots, hub_settings | manual balances (account_id, as_of); one snapshot per day; key/value: display_name, features_off, features_done (features), onboarding = 'done' (welcome) |
 | classifier, scope | categories, rules, entities, people | categories (parent_id, name, level 1–4, kind); rules (pattern, match_type contains/payee, category_id, display_name, entity, person); entities (name, role book/payer/other, aliases); people (name, aliases; 'Self' = owner's name variants) |
 | planning | recurring, budgets, alert_state, month_close | recurring (name, match_key, amount, freq, next_date, account, rtype, status); monthly budget per category_id; snoozes; checklist per month and item |
 | ledger | txn_links, reimb_claims, reimb_receipts, contacts, pl_loans, pl_moves | links (out_id, in_id, counter_kind, counter_ref, kind, status suggested/confirmed/rejected, score, reason); claims and receipts per payer; loans with people (book, person, direction given/taken, due_date, status) and their moves (kind principal/repayment/interest/waived, mode, our_account, txn_id) |
@@ -465,6 +583,7 @@ build_outbox() returns None unless enabled, with a valid recipient and SMTP host
 
 start_scheduler() runs tick() every 60 s in a daemon thread:
 
+- EXTRA_TICKS first, each in its own try: auth.idle_watch (4.5) and, since 1.7, backup.run_due (4.10).
 - maybe_rebuild(): only while unlocked, when mark_dirty() was called (by close_db after a save, by prepare_db), after an hour, or after midnight.
 - run_due(): for every outbox (MEMORY plus DPAPI files of all users, locked or not), send each unsent message inside its window; retry failures after 15 minutes (_FAILS); record success in the sent log (late if over an hour after send_at).
 
@@ -489,9 +608,10 @@ A report is {title, subtitle, sections}; a section is 'kv' (label/value rows) or
 - nav_groups: (id, label, icon, tone, items), items = (label, endpoint, args, icon, active test); groups Home, Accounts, Money, Investments, Plan, Settings; open state remembered in localStorage.
 - Tones: CSS variables --indigo, --teal, --coral, --amber, --violet, --blue, --green, --pink, --slate, --red; class tone-<name> sets --tone for cards, chips, pills, bars, icons (t-tone, bg-tone-soft). Light/dark via data-bs-theme; choice in localStorage hub_theme.
 - Cards and pieces: stat-card, chart-card, card-head, kpi, chip, pill-tabs, list-row, soft-box, bar, num, muted.
+- Settings group (1.7): Categories, Payee rules, Features & accounts, People & entities, Statement passwords, Mail inbox, Reminders & reports by mail, Backup & restore, Help & user manual, Report a problem, Users & security. planning.PAGES adds Backup & restore, Report a problem and Setup wizard (welcome_step) to Ctrl+K.
 - Top bar: Viewing filter, Ctrl+K palette (/api/search over planning.PAGES and data), alerts bell (/api/alerts/count), theme, Report menu (block report_menu), help "?" (help_page with topic = request.endpoint), Lock, Quit (only if hub_launcher).
 - Mail badge: review count from mailreader._mail_ctx; with mail_auto the poll script (8.4) updates it and shows a toast.
-- Feature switches (features.py): the context processor gives hidden_eps and hidden_kinds; the nav loop builds a visible item list per group (a group with no visible items is not drawn), accounts tabs drop hidden kinds, planning.search drops hidden pages, and features._features_guard redirects a hidden page to /features. The first GET of Home for a user without hub_settings.features_done goes to /features?welcome=1 (skipped when app.testing unless FH_WIZARD is set). Nothing is deleted when a feature is off; demat requires investments; card & loan tools stay while cards or loans are on.
+- Feature switches (features.py): the context processor gives hidden_eps and hidden_kinds; the nav loop builds a visible item list per group (a group with no visible items is not drawn), accounts tabs drop hidden kinds, planning.search drops hidden pages, and features._features_guard redirects a hidden page to /features. The first GET of Home for which welcome.needed(con) is true (hub_settings.onboarding is not 'done' and features_done is not '1') goes to /welcome/you (skipped when app.testing unless FH_WIZARD is set); users who chose features in 1.6 never see the wizard. Nothing is deleted when a feature is off; demat requires investments; card & loan tools stay while cards or loans are on.
 - Blocks: title, head, page_title, report_menu, content, scripts.
 
 > **Important:** A top-level `{% set %}` in base.html overrides a view variable of the same name, even inside the child template's blocks. That is why base.html uses nav_groups, _ep and _tab instead of groups, ep or tab (accounts.html relies on its own tab). Never add a top-level set with a common name to base.html.
@@ -500,7 +620,25 @@ A report is {title, subtitle, sections}; a section is 'kv' (label/value rows) or
 
 base.html and auth_base.html load Bootstrap 5.3.2, Bootstrap Icons, Chart.js 4.4.1, jQuery 3.7.1 and DataTables from cdnjs, and the Inter font from Google Fonts, without integrity attributes.
 
-## 12. Help system (help_hub.py)
+### 11.5 First-start setup wizard (welcome.py)
+
+STEPS = you, mail, features, accounts, backup (label and icon each). Endpoint welcome_step serves /welcome and /welcome/<name> (GET and POST; an unknown name redirects to you). The page (welcome.html) shows the steps as chips that link to each other; every step has Save and continue and Skip this step (skip=1); the last has Finish and add my first statements (then=import) and Finish.
+
+POST without skip writes:
+
+| Step | Writes |
+|---|---|
+| you | hub_settings.display_name (60 chars); a company name other than "personal" becomes an entities row (role 'book', aliases, sort_order 5) with INSERT OR IGNORE |
+| mail | only when an address is given: mail_settings user, password (spaces removed; kept if empty), enabled (automatic reading); recipients validated by notify.EMAIL_RE go to notify_settings recipients with enabled (reminders) |
+| features | features_off from the ticked keys, closed over features.REQUIRES |
+| accounts | nothing (Add links open accounts?tab=<kind>&add=<kind> in a new tab) |
+| backup | backup.target_dir check, then backup.save_settings(dir, every, keep=10) in users.json; an unusable folder flashes a warning and stays on the step |
+
+The features step sets features_done = '1' even when skipped (everything stays on). After the last step onboarding = 'done' and features_done = '1', then redirect to import_page (then=import) or Home. Every step can be reopened later, for example from Ctrl+K "Setup wizard".
+
+## 12. Help and support
+
+### 12.1 Manuals (help_hub.py)
 
 - Chapters: docs/user/NN-slug.md (slug without the number), optional endpoints and icon comments; chapters() caches by file names and modification times.
 - Markdown subset: headings # to ####, paragraphs, - / * / 1. lists (two-space nesting, three levels, indented continuation lines), tables, fenced code, > callouts (Important and Warning shown as warnings; Tip, Note, Good to know as tips), --- rules; inline bold, italics, code and links to help:slug#anchor, /path, #anchor or https://. HTML is escaped; repeated heading ids get -2, -3.
@@ -508,20 +646,48 @@ base.html and auth_base.html load Bootstrap 5.3.2, Bootstrap Icons, Chart.js 4.4
 - Search: every word must occur in a section; score = occurrences + 5 per word in its title; top 20 with snippets.
 - PDF: reportlab, cover with contents, a page per chapter, footer. Text is mapped to Helvetica's character set (rupee sign → Rs, arrows and dashes replaced); code blocks print verbatim in Courier, so keep them ASCII and under about 95 characters. /help/manual.pdf holds all chapters; design_pdf splits DESIGN.md at level-1 and level-2 headings.
 - Design manual: /help/internal/design and its PDF are admin-only (403 otherwise, 404 if missing).
+- The help sidebar also has a Report a problem button (support_page).
+
+### 12.2 Report a problem (support.py)
+
+The support address is hub_version.SUPPORT_EMAIL (a gmail.com address, which the release privacy scan allows).
+
+```
+GET  /support         page(): preview built from request.args ("Update preview" is a
+                      GET of the same form), ref from ?ref=
+POST /support/send    send(): summary required; action = download | mailto | send
+_build(): diagnostics() if diag == '1'      (default on)
+          recent_errors(LOG_DIR, ref) if logs == '1'   (default on)
+          compose(form, diag, logs, contact) -> plain text
+```
+
+- compose: Summary, Where in the Hub, How bad (minor / normal / blocking), What happened, Steps, What I expected, Error reference, Reply to, "--- Technical details ---", "--- Recent errors from the log (numbers, e-mails and paths masked) ---", "Sent <time> from Finance Hub."
+- diagnostics(con, vault, app): Finance Hub VERSION and Statement Reader ENGINE_VERSION; Python, platform.system/release/version; installed (hub_paths.INSTALLED) or portable; HUB_SERVER; features.off; COUNT(*) of accounts, transactions and statements; mail inbox set up and automatic. Each part in its own try.
+- recent_errors(log_dir, ref): the last 3000 lines of hub.log; keeps lines containing " ERROR ", " WARNING " or "Traceback", plus continuation lines (indented, or starting "<Name>Error" / "<Name>Exception") after a traceback or ERROR line. With ref, the list is cut after the last line containing ref and keeps up to 60 lines before it, so it ends with that error's traceback. Each line is scrubbed and cut to 300 characters; at most 60 lines (MAX_LOG_LINES).
+- scrub(text), in this order: e-mail addresses `[\w.+-]+@[\w-]+\.[\w.]+` become <e-mail>; PAN `[A-Z]{5}\d{4}[A-Z]` (any case) becomes <PAN>; rooted paths (drive letter or /, at least one separator) become <path>/<last part>; numbers `\d[\d,]{3,}(?:\.\d+)?` become <number>. Side effects: dates and times in log prefixes are also masked; names, numbers under four digits and file names are not.
+- scrub is applied to the log lines and to every typed field (summary, where, what, steps, expected) and to the mail subject.
+- Sending: download returns text/plain FinanceHub_problem_report.txt; mailto redirects to mailto:SUPPORT_EMAIL with subject and body (body cut at 1800 characters); send uses notify.smtp_for(mail_settings, notify_settings) and needs host, user and password: EmailMessage From "Finance Hub <hub mailbox>", To SUPPORT_EMAIL, Reply-To the contact, Subject "Finance Hub <VERSION> — problem: <summary[:80]>"; SMTP_SSL on 465, else STARTTLS; app.config HUB_SMTP_FACTORY replaces the client in tests. Success logs "Problem report sent to support" and redirects to help_page; failure flashes the error (120 characters).
+- errorhandler(500), registered by support.register (it replaced the plain handler in app.py): ref = uuid4().hex[:8].upper(); app.logger.error("Error reference %s on %s %s"); renders auth_error.html with the reference and a link to support_page?ref=<ref>. Flask logs the traceback just before, which is why recent_errors(ref) can find it.
 
 ## 13. Security model
 
+1.7 changes the model in one deliberate way: key escrow (4.9) trades "nobody but the user can open their data" for "a forgotten password and lost recovery key can be repaired by an administrator". Within one Hub, users are protected from each other only if they are not administrators.
+
 | Threat | Mitigations | Residual risk |
 |---|---|---|
-| Copied folder or stolen disk | AES-256-GCM files; DEK wrapped by PBKDF2 (600 000) of password or recovery key; sealed previews and mail files; uploads erased after import and after a day; DPAPI outbox | guessing weak passwords offline (limited by rules and PBKDF2 cost); users.json reveals IDs, roles, log-in times; secure delete is best effort on SSDs; logs may hold error texts |
-| Another Windows user | profile-folder permissions; server on 127.0.0.1 and every guarded request needs a cookie signed with a per-start secret plus the vault nonce; outbox bound to the Hub's Windows account | other users reach the port's open endpoints; a PC administrator can read memory while unlocked |
+| Copied data folder or stolen disk | AES-256-GCM files; DEK wrapped by PBKDF2 (600 000) of password or recovery key; sealed previews and mail files; uploads erased after import and after a day; DPAPI outbox | guessing weak passwords offline (limited by rules and PBKDF2 cost); users.json reveals IDs, roles, log-in times and backup folders and times; secure delete is best effort on SSDs; logs may hold error texts |
+| Another Windows user | data folder: setup grants the installing user Modify, other access is inherited from the parent folder; server on 127.0.0.1 and every guarded request needs a cookie signed with a per-start secret plus the vault nonce; outbox bound to the Hub's Windows account | a data folder on another drive may be readable by other local accounts (files stay encrypted); other users reach the port's open endpoints, including /setup/restore before the first user exists; a PC administrator can read memory while unlocked |
+| Administrator reading another user's data (escrow) | the escrow private key exists only wrapped with each admin's DEK; non-admins hold no escrow_key and demotion removes it; a reset sets must_change and the old password stops working; disclosed on the Users page | any admin can decrypt any user's escrow_dek offline, from users.json alone, without a trace, and with that DEK every past and future backup of the user; the DEK is never rotated |
 | Malicious mail | allowlist, header-first fetch, type and size limits, own parsers only, no links followed, HTML never rendered (alerts kept as stripped text), auto-import only when every check passes | bugs in pdfplumber, pikepdf, openpyxl, xlrd; a hostile but validly signed mail from an allowed domain |
 | Look-alike senders | exact or subdomain match; DMARC or aligned DKIM from the topmost Authentication-Results; mx.google.com required for Gmail; forwarded mails never auto-import | non-Gmail hosts: any topmost header is trusted; broad entries such as bank.in |
 | Stolen app password | kept only in the encrypted database and the DPAPI outbox; dedicated mailbox advised; Hub reads (BODY.PEEK), labels, sends to set recipients | an app password gives full mailbox access until revoked; no OAuth |
 | Localhost server | binds 127.0.0.1; Waitress clears untrusted proxy headers; next checked at log-in and profile | no CSRF tokens or SameSite cookie; /logout and /scope change state on GET; CDN assets without integrity |
-| Forgotten password | recovery key wraps the same DEK | losing both loses the data — by design, no back door |
+| Forgotten password | recovery key wraps the same DEK; an admin can reset through the escrow (only for users who logged in once under 1.7, and not for oneself) | losing both, with no other admin holding escrow_key, loses the data |
+| Backups in a cloud folder | .fhb holds only ciphertext plus the wrapped keys of its time; written to a local folder, uploaded by the sync app; sha256 per part and AES-GCM tags checked on restore; a safety backup precedes every restore | offline guessing against the wrapped key; old passwords and recovery keys open old backups; manifest and file name show user ID and times; the cloud account's own security is out of scope |
+| Problem reports | sent only on a click, after a preview of the exact text; diagnostics are versions, switches and counts; log lines scrubbed (12.2); no files attached; sent through the user's own mailbox or mail program | names, short numbers and file names pass the scrub |
+| Installer | release zip checked against MANIFEST.sha256; absolute, drive and .. paths refused; only the program-folder part runs elevated, and it is waited for; shortcuts and the Run key are written unelevated | the manifest is not signed (it detects damage, not a replaced setup package); Setup.cmd runs whichever py / python is first on PATH; the elevated part runs setup.pyw from the user-writable setup folder |
 
-Out of scope: malware running as the same Windows user (memory, keystrokes, DPAPI); someone using an unlocked Hub at the PC (idle lock and Lock limit it); copies of backups/ taken elsewhere (they stay encrypted); isolation between Hub users beyond separate keys (one process, one open database).
+Out of scope: malware running as the same Windows user (memory, keystrokes, DPAPI); someone using an unlocked Hub at the PC (idle lock and Lock limit it); copies of backups/ and .fhb files taken elsewhere (they stay encrypted); the OneDrive or Google Drive account; isolation between Hub users beyond separate keys (one process, one open database) and, since 1.7, isolation from administrators.
 
 ## 14. Versioning, release and upgrade
 
@@ -536,28 +702,77 @@ Out of scope: malware running as the same Windows user (memory, keystrokes, DPAP
 1. CHANGELOG.md must have a "## <VERSION>" heading.
 2. Privacy scan of text files (.py .pyw .html .md .bat .txt .json .js .css .cfg .toml) for PAN, card and account numbers, Aadhaar, IFSC, mobile numbers and e-mail addresses, with allow-lists for synthetic values; findings stop the build unless --allow-findings. It cannot detect names — review diffs for them.
 3. tests/run_all.py unless --skip-tests; failures stop the build.
-4. dist/FinanceHub_<VERSION>.zip without data, uploads, backups, logs, .venv, .git, dist, __pycache__, tests, statements, users.json, requirements.lock, finance.db and .enc, .prev or .pyc files; MANIFEST.sha256 inside; FinanceHub_<VERSION>.zip.sha256 beside it.
+4. dist/FinanceHub_<VERSION>.zip without data, uploads, backups, logs, .venv, .git, dist, __pycache__, tests, statements, users.json, requirements.lock, financehub.json, finance.db and .enc, .prev or .pyc files; MANIFEST.sha256 inside; FinanceHub_<VERSION>.zip.sha256 beside it. installer/ is included.
+5. dist/FinanceHub_<VERSION>_Setup.zip (1.7): one folder FinanceHub_<VERSION>_Setup/ with installer/setup.pyw, Setup.cmd, hub.ico, README.txt, FinanceHub_Setup.iss, build_exe.bat and the release zip; FinanceHub_<VERSION>_Setup.zip.sha256 beside it. This is what users receive.
 
 ### 14.3 tools/upgrade.py
 
 1. Verify every file against the zip's MANIFEST.sha256; refuse damaged zips and zips containing data folders or users.json.
-2. Refuse while /healthz answers on 127.0.0.1:5000.
-3. Back up the .enc and .enc.prev files and users.json to backups/<date>_before_<version>/.
+2. Refuse while /healthz answers on 127.0.0.1 at FINANCEHUB_PORT or hub_paths.PORT.
+3. Back up the .enc and .enc.prev files, the _files folders and users.json from DATA (hub_paths.DATA_ROOT; the program folder when hub_paths cannot be imported) to DATA/backups/<date>_before_<version>/, write data/.version, keep the newest 10.
 4. Write the program files and the new MANIFEST.sha256.
 5. Delete .py, .pyw, .html, .md and .bat files of the old manifest that the new one lacks.
 6. pip install -r requirements.txt into .venv (or advise install.bat).
 
+It writes into the program folder without elevation, so it suits portable copies; an installed copy is upgraded by running the newer setup (14.5).
+
 ### 14.4 Launcher backup and installation
 
-- backup_on_upgrade(): when data/.version differs from VERSION and encrypted data exists, copy .enc, .enc.prev and users.json to backups/<YYYY-mm-dd_HHMMSS>_before_<VERSION>/ with FROM_VERSION.txt, write the marker, keep the newest 10 folders. Backups stay encrypted; sealed mail files, outbox and sent log are not copied.
-- install.bat: finds Python 3.10+, creates .venv, installs requirements.txt, writes requirements.lock, runs tools/shortcuts.py and starts the launcher; safe to repeat, never touches data. run.bat starts .venv pythonw with FinanceHub.pyw, or install.bat if .venv is missing.
-- tools/shortcuts.py creates "Finance Hub" shortcuts on the Desktop and Start menu via PowerShell (Windows only). Start with Windows is an HKCU Run value with --background.
+- backup_on_upgrade(): when DATA_ROOT/data/.version differs from VERSION and encrypted data exists, copy .enc, .enc.prev, the _files folders and users.json to BACKUP_DIR/<YYYY-mm-dd_HHMMSS>_before_<VERSION>/ with FROM_VERSION.txt, write the marker, keep the newest 10 folders. Backups stay encrypted; outbox and sent log are not copied. Only folders named like that count as version backups (Running card, pruning in the launcher and upgrade.py); restore safety copies live in backups/before-restore/.
+- Portable copies (no financehub.json): install.bat finds Python 3.10+, creates .venv, installs requirements.txt, writes requirements.lock, runs tools/shortcuts.py and starts the launcher; safe to repeat, never touches data. run.bat starts .venv pythonw with FinanceHub.pyw, or install.bat if .venv is missing.
+- tools/shortcuts.py creates "Finance Hub" shortcuts on the Desktop and Start menu via PowerShell (Windows only). Start with Windows is an HKCU Run value FinanceHub with --background, written by the tray, the Users page and setup alike.
+
+### 14.5 Installation (installer/, 1.7)
+
+| File | Role |
+|---|---|
+| Setup.cmd | entry point: finds Python 3.10+ (`py -3`, run as `pyw -3`; else `python`, run as `pythonw`), else explains and opens python.org/downloads/windows and exits 1; `start /wait` setup.pyw; /uninstall → --uninstall, /silent → --silent --desktop --start |
+| setup.pyw | tkinter wizard, command line, install, upgrade, uninstall |
+| FinanceHub_Setup.iss, build_exe.bat | optional single .exe with Inno Setup 6 |
+| README.txt, hub.ico | short instructions; window icon |
+
+```
+setup.pyw (no arguments) -> wizard(): Welcome | Folders | Options | Install
+  full_install(opts, log)                         (worker thread)
+    hub_running() on 127.0.0.1:5000? -> refuse ("quit it first")
+    program or data not writable and not admin?
+      yes: run_elevated(--silent --program P --data D [--import-from X]
+                        --grant-user %USERNAME% --elevated --log FILE)   UAC
+      no:  install_program(...) in this process
+    make_shortcuts(), set_autostart(), start_hub()   (always as the user)
+
+install_program(program, data, import_from, packages, log, grant_user)
+  verify every file of FinanceHub_<v>.zip against its MANIFEST.sha256
+  refuse names starting with / or \, containing .. or a drive colon
+  write files and MANIFEST.sha256; delete files of the old manifest that
+    the new one lacks (never KEEP: data uploads backups logs .venv users.json
+    financehub.json requirements.lock)
+  copy setup.pyw and Setup.cmd to <program>/installer
+  mkdir data; write financehub.json {"data_dir": D, "port": 5000}
+  icacls D /grant <user>:(OI)(CI)M /T /Q          (elevated run only)
+  bring_data(X, D)   make_venv(program)   register_uninstall()
+```
+
+- Defaults: default_program_dir() = ProgramW6432 (or ProgramFiles)\Finance Hub; default_data_dir() = D:\Finance Hub when D:\ exists, else C:\Finance Hub Data (~/Finance Hub Data off Windows). installed_location() reads InstallLocation from the uninstall key (HKLM, then HKCU); when found, the Welcome page announces an upgrade and the folders default to that program folder and its financehub.json data_dir.
+- Wizard pages: Welcome (version, Python used, earlier install); Folders (program, data, "Bring over the data of an existing Finance Hub folder" with a path; go_next requires both folders, refuses data = program, and requires users.json or financehub.json in the import folder); Options (Desktop shortcut on, start with Windows off, start now on, summary; Next becomes Install); Install (log text, indeterminate progress bar, buttons disabled). The worker runs full_install; the Log object appends to %TEMP%\FinanceHub_setup_<pid>.log, the elevated process writes the same file (--log), and the page polls it every 400 ms. An exception shows "Setup did not finish: <error>" and a Close button; success shows Finish.
+- Elevation: needs_admin(path) tries to create a test file in the nearest existing parent. run_elevated() re-runs setup.pyw through ShellExecuteExW (verb runas, hidden window, SEE_MASK_NOCLOSEPROCESS), waits for it and returns its exit code; a refused UAC prompt raises "administrator permission was not given". Only install_program runs elevated, so shortcuts (Programs and Desktop of the user) and the HKCU Run value land in the installing user's profile.
+- ACL: an elevated run creates the data folder as administrator, so --grant-user grants the installing user (USERNAME of the unelevated process) Modify with object and container inheritance, recursively. The Hub, running as that user, can then write there.
+- bring_data(src, data): follows src/financehub.json to its data_dir; requires users.json; if data/users.json already exists it only logs "The data folder already has users …" and copies nothing; otherwise copies users.json, data/*.enc, *.enc.prev, *.outbox, *.sent.json, .version and *_files/, and backups/. The source is never changed. Because .version comes along, the launcher's first start backs the data up for the new version.
+- make_venv: the Python running setup (python.exe beside pythonw.exe) creates <program>/.venv if missing, then pip install -r requirements.txt without a console window and pip freeze to requirements.lock; a pip failure raises with the tail of its output (internet needed).
+- register_uninstall: HKLM when running as admin, else HKCU, key Software\Microsoft\Windows\CurrentVersion\Uninstall\FinanceHub: DisplayName, DisplayVersion, Publisher, InstallLocation, DisplayIcon (static\hub.ico), UninstallString ("<.venv pythonw.exe>" "<program>\installer\setup.pyw" --uninstall), NoModify, NoRepair.
+- Shortcuts: PowerShell with WScript.Shell creates "Finance Hub.lnk" in Programs (and Desktop when chosen), target .venv\Scripts\pythonw.exe with "FinanceHub.pyw", working folder the program folder, icon static\hub.ico. set_autostart writes or deletes HKCU Run FinanceHub = pythonw FinanceHub.pyw --background, so setup also turns autostart off when unticked. start_hub starts the launcher detached.
+- Upgrade = the same flow over the existing folders. The program folder is rewritten, stale files go, the data folder is untouched; the launcher makes the version backup at the first start.
+- Uninstall (--uninstall [--program DIR]): the program folder is --program, else InstallLocation, else the folder above setup.pyw — and it must look like an installation (app.py, hub_version.py, MANIFEST.sha256) or nothing is removed. When started with the Python inside that folder (Settings › Apps runs the .venv pythonw), it first restarts itself from a temp copy with the base Python (base_pythonw). A yes/no question names the data folder that is kept (skipped with --silent); refuses while the Hub runs; removes the HKCU Run value and both shortcuts; if the program folder needs elevation, runs the temp copy elevated (run_elevated with script/exe, waited for) with --uninstall --silent --program, then reports the result; otherwise rmtree(program) and deletes the uninstall key under HKLM and HKCU. The data folder is never touched.
+- Command line: --silent --program --data --import-from --no-packages (also passed to the elevated part) --log --elevated --grant-user --uninstall --desktop --autostart --start. install_program keeps the keys of an existing financehub.json (e.g. a custom port) and only sets data_dir. --silent with --elevated runs install_program only; --silent alone runs full_install. Without tkinter the wizard raises ImportError and main() prints a hint to use /silent.
+- Inno option: FinanceHub_Setup.iss (Inno Setup 6) takes AppVersion from the FH_VERSION environment variable (default 1.7) and builds FinanceHub_<v>_Setup.exe with CreateAppDir=no, Uninstallable=no, PrivilegesRequired=lowest. It unpacks setup.pyw, Setup.cmd, hub.ico and FinanceHub_*.zip to {tmp} and runs `cmd /c Setup.cmd`, waiting until it ends. build_exe.bat finds ISCC.exe under Program Files (x86) or Program Files, derives FH_VERSION from the zip name and compiles. The .exe is only a self-extracting wrapper: Python must already be installed, and the Hub's own uninstall entry, not Inno's, removes the program.
 
 ## 15. Testing
 
 - tests/_common.fresh(name) copies the program (without .git, .venv, data, users.json, uploads, backups, logs, dist, databases, tests) to a temp folder, changes into it and puts it first on sys.path: tests never touch real data.
 - tests/run_all.py runs each tests/test_*.py in its own process, prints PASS/FAIL with the output tail, and exits 0 only if all pass.
 - Synthetic data only: invented names, accounts such as "Test Savings 1111", made-up ISINs, fake IMAP and SMTP.
+- Environment hooks: FINANCEHUB_DATA (data folder), FINANCEHUB_CLOUD_DIRS (extra "cloud" folders for cloud_folders), app.config FH_WIZARD (show the setup wizard although app.testing is set), HUB_SMTP_FACTORY.
+- tests/_tkstub/tkinter is a minimal stand-in for tkinter (Tk and widgets that record their options in ALL, after() callbacks queued in AFTER, StringVar / BooleanVar, ttk, filedialog, messagebox). tests/_tkstub/drive_wizard.py loads setup.pyw from the unpacked Setup package with that stub first on sys.path, replaces full_install with a recorder, presses Next three times, drains AFTER and checks the options passed. It needs no display. UAC, the registry, shortcuts, icacls and pip are Windows- or network-only and are not exercised; test_installer runs on Linux with --no-packages.
 
 | Test | Covers |
 |---|---|
@@ -565,7 +780,9 @@ Out of scope: malware running as the same Windows user (memory, keystrokes, DPAP
 | test_demat.py | CAS reading per demat, commit, reconciliation statuses, portfolio statement quantities, old CAS broker migration |
 | test_imap_client.py | mailreader.Imap against a scripted IMAP server (capabilities, UIDVALIDITY, SEARCH SINCE, header parsing, BODY.PEEK, labels) |
 | test_mail_inbox.py | allowlist, rejected look-alikes, sealed alerts, forwarded mail to review, auto-import of CAS and statements, duplicates, allow sender, review, poll not counted as activity, auth_check units |
-| test_1_6.py | help chapters (endpoints, links, PDF, design pages if DESIGN.md exists), refunds, reminder outbox, timing, no double send, sent-log privacy, launcher pieces |
+| test_1_6.py | help chapters (endpoints, links, PDF, design pages if DESIGN.md exists), refunds, reminder outbox, timing, no double send, sent-log privacy, Home redirect to /welcome, features, launcher pieces |
+| test_1_7.py | separate data folder via FINANCEHUB_DATA (nothing written to the program folder); escrow fields; admin reset, must_change and /account/password; own rename; a member cannot reset; rename_other; promotion grants escrow_key; backup save, now and download (no plaintext in the file), restore with the same key, safety copy, still logged in, damaged file refused, run_due due and not again; restore_fresh on a new Vault, refused a second time and with a wrong password; scrub; support page, download, mailto and send with a fake SMTP; 500 page with error reference; the setup wizard's five steps, what they write, shown once |
+| test_installer.py | make_release (--skip-tests --allow-findings) builds the Setup zip; silent install with --no-packages into temporary program and data folders, bringing over an old portable Vault; financehub.json; a subprocess in the installed folder finds its data and logs in; upgrade removes a stale file and keeps data; import into a folder with users is refused; a tampered release is refused; uninstall keeps data; the wizard's page flow through tests/_tkstub |
 
 To add a test: create tests/test_<topic>.py; call `SP = fresh('<topic>')` before importing app; drive A.app.test_client() after posting /setup and /login, or use A.app.test_request_context() with A.get_db(); fake external services by replacing mailreader.Imap, passing a factory to check_mail or notify.run_due, or setting app.config HUB_SMTP_FACTORY; assert, then run tests/run_all.py.
 
@@ -610,6 +827,8 @@ Create docs/user/NN-slug.md with "# Title", endpoints and icon comments, the Mar
 - Exchange holidays for T+1: settles_by skips only weekends, so trades before a holiday look in transit a day too long.
 - OAuth instead of Gmail app passwords, for narrower, separately revocable access.
 - More bank, card and broker readers as samples arrive.
+- A compiled installer: today the .exe (Inno Setup) is optional and still needs Python; bundling a Python runtime would remove that step.
+- DEK rotation (re-encrypt with a new key) so that old backups and an escrow copy stop opening new data after a compromise.
 
 ### 17.2 Limitations
 
@@ -617,6 +836,10 @@ Create docs/user/NN-slug.md with "# Title", endpoints and icon comments, the Mar
 - One open database at a time; another user's log-in locks the first.
 - Windows-only DPAPI outbox, tray, autostart and shortcuts; elsewhere reminders need a running, unlocked-once process.
 - Whole-database re-encryption on each writing request; account names as keys; UI libraries from CDNs.
+- Installation needs Python 3.10+ installed first (Setup.cmd only finds it or opens python.org). No real .exe is compiled in the build environment: FinanceHub_Setup.iss and build_exe.bat need Inno Setup 6 on a Windows PC, and the resulting .exe is a wrapper around Setup.cmd.
+- The tkinter wizard is tested only with the stub (15); UAC elevation, icacls, registry entries, shortcuts and pip are not covered by automated tests and must be checked by hand on Windows.
+- Automatic backups need the Hub running (Start with Windows); uploading to the cloud depends on the sync app.
+- Key escrow: administrators can read every user's data (13).
 
 ### 17.3 Review findings (1.6)
 
@@ -652,3 +875,26 @@ Still open (low risk, by design for a local single-user app):
 - No subresource integrity on CDN assets; the CDN must be trusted, or the assets vendored later.
 - For non-Gmail mailboxes the topmost Authentication-Results header is trusted whatever its authserv-id.
 - Automatic mail checks need an open Hub tab (the scheduler only prepares and sends reminder mails; it never writes the database).
+
+### 17.4 Review findings (1.7)
+
+Found while writing the 1.7 manuals and fixed before release:
+
+| Finding | Fix |
+|---|---|
+| uninstall could fall back to the folder above setup.pyw | uninstall() refuses unless the folder looks like an installation (app.py, hub_version.py, MANIFEST.sha256) |
+| elevated uninstall ran the .venv Python inside the folder being removed; no final message | uninstall continues from a temp copy with the base Python (base_pythonw), waits for the elevated part and reports the result |
+| financehub.json port reset to 5000; hub_running() checked 5000 only | existing financehub.json keys are kept; hub_running() reads the configured port |
+| --no-packages not passed to the elevated run | passed |
+| restore safety copies counted as version backups | version backups are only folders named YYYY-MM-DD_HHMMSS_before_<v> (app, launcher, upgrade.py); safety copies go to backups/before-restore (newest 10) |
+| make_backup persisted from the scheduler thread | run_due passes persist=False (every request already saved its changes) |
+| users.json read-modify-write without a lock | the mutating Vault methods run under V.lock (@_locked), as do log-in, the admin grant on the Users page and backup.save_settings |
+| restore_mine accepted another user's backup | only the same database (manifest/entry db) or the same user ID |
+| restore_fresh trusted names from the file | db must match [0-9a-f]{16}.enc and the user ID the user-ID rule |
+| backups not listed / pruned after a user-ID change | manifest records db; listing and pruning go by db |
+| restore form asked for "password of then" | asks only for a backup from another installation |
+| typed report text was not scrubbed | scrub() applies to every typed field and the subject; the page says so |
+| mailto text promised a saved file; a failed send lost the form | wording fixed; send re-renders the form with its values and the error reference |
+| error page / Users card wording | "data folder" |
+| tests/_common copied financehub.json | excluded |
+

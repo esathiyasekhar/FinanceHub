@@ -6,9 +6,13 @@ Turn on only the parts of the Hub you need — savings, cards, loans, business b
 
 ## The first time you log in
 
-Right after your first log-in the Hub asks **What do you use?** Tick what applies to you and click **Continue**. The menu, the search (Ctrl+K) and the tabs on **Accounts** then show only those parts.
+Right after your first log-in, the setup wizard walks you through five short steps (see [Getting started](help:getting-started#the-setup-wizard)). Step 3, **Features**, asks **What do you use?** Tick what applies to you and click **Save and continue**. The menu, the search (Ctrl+K) and the tabs on **Accounts** then show only those parts.
 
-You can change your choice at any time: **Settings › Features & accounts**.
+- If you click **Skip this step**, every feature stays on.
+- Step 4, **Accounts**, then lists the kinds of account you chose, with an **Add** button for each, like the lower part of this page.
+- If you already chose your features in an earlier version of the Hub, you are not asked again.
+
+You can change your choice at any time: **Settings › Features & accounts**. Click **Save** after ticking or unticking.
 
 > **Good to know:** Unticking a feature never deletes anything. Its pages are only hidden; tick it again and everything is back exactly as it was. Statements, transactions, categories, reports and settings are always on.
 
