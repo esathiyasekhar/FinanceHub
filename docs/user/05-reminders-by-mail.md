@@ -30,7 +30,7 @@ If nothing is due, the report says so.
 
 ## Before you start
 
-Reminders are sent from the Hub's own mailbox. Set it up first on **Settings › Mail inbox**. See [Mail inbox](help:mail-inbox#setting-up-the-hubs-mailbox).
+Reminders are sent from the Hub's own mailbox — with several mailboxes, from the one marked **sends reminders**. Set it up first on **Settings › Mail inbox**. See [Mail inbox](help:mail-inbox#setting-up-the-hubs-mailbox).
 
 The reminders are only as good as your data. Add your statements regularly, and keep your card due dates, EMIs and regular payments up to date. See [Budgets, recurring and alerts](help:budgets-recurring-and-alerts).
 
@@ -57,7 +57,7 @@ If an address is not valid, the Hub leaves it out and tells you which one.
 
 ### Outgoing mail server
 
-Normally you can leave **Outgoing mail server** alone. The Hub sends through the server that belongs to its mailbox; for Gmail that is `smtp.gmail.com` on port 465. Change it only if your mailbox provider tells you to.
+Normally you can leave **Outgoing mail server** alone. The Hub sends through the server that belongs to its mailbox; for Gmail that is `smtp.gmail.com` on port 465; for Outlook it is `smtp-mail.outlook.com` on port 587, with your Microsoft sign-in. Change it only if your mailbox provider tells you to.
 
 ## Test mail and preview
 

@@ -3,6 +3,25 @@
 Every change gets a new version number (shown at the bottom of the sidebar). From 28 Oct 2026 versions run 1.1, 1.2, …
 Earlier versions (v2 – v11) and their data were deleted at the owner's request; this log starts with 1.1.
 
+## 1.8 — 2026-10-28
+**Outlook mailboxes** (*Settings › Mail inbox*)
+- **Sign in with Microsoft** for Outlook.com, Hotmail, Live and Microsoft 365 mailboxes — Microsoft no longer accepts
+  passwords from programs. You register the Hub once (free) in the Azure portal and paste its *Application (client) ID*;
+  then click **Sign in with Microsoft**, type the code shown on microsoft.com/devicelogin and allow access. The Hub never
+  sees your Microsoft password; the sign-in is kept in your encrypted data, renewed automatically, and can be signed out.
+- Reminders and problem reports can be sent from an Outlook mailbox too (smtp-mail.outlook.com, port 587, same sign-in).
+
+**More than one mailbox**
+- Add as many mailboxes as you like (Gmail, Outlook, or another IMAP mailbox); every check reads all of them. A mail that
+  reaches two mailboxes is read once, and each mail shows which mailbox it came from.
+- Pause, edit, test or remove each mailbox; choose which one **sends reminders**. Senders, forwarding addresses and how
+  often to check are shared by all mailboxes (*Reading rules*).
+- Your existing mailbox becomes the first one automatically, with nothing read twice.
+
+**Clearer connection errors** — e.g. Gmail's "Application-specific password required" now says to create an
+  app password (not your normal Gmail password) and where; IMAP turned off, expired Microsoft sign-in and similar get
+  plain advice too.
+
 ## 1.7 — 2026-10-28
 **Windows installer**
 - **Setup** (`Setup.cmd` → setup wizard): choose the **program folder** (default `C:\Program Files\Finance Hub`) and the

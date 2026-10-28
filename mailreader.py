@@ -43,7 +43,16 @@ CREATE TABLE IF NOT EXISTS mail_items (
     created_at TEXT DEFAULT (datetime('now')));
 CREATE INDEX IF NOT EXISTS idx_mail_msg ON mail_items(message_id);
 CREATE INDEX IF NOT EXISTS idx_mail_hash ON mail_items(file_hash);
+CREATE TABLE IF NOT EXISTS mailboxes (            -- 1.8: the Hub can read several mailboxes (Gmail, Outlook, others)
+    id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT, provider TEXT, user TEXT, password TEXT, host TEXT, port TEXT,
+    folder TEXT DEFAULT 'INBOX', label TEXT, ms_client_id TEXT, ms_tenant TEXT DEFAULT 'common', oauth_refresh TEXT,
+    active INTEGER DEFAULT 1, send_from INTEGER DEFAULT 0, uidvalidity TEXT, last_uid TEXT DEFAULT '0', last_check TEXT,
+    last_result TEXT, created_at TEXT DEFAULT (datetime('now')));
 """
+_MOVED = ('user', 'password', 'host', 'port', 'folder', 'label', 'ms_client_id', 'ms_tenant', 'oauth_refresh', 'uidvalidity',
+          'last_uid', 'provider')
+BOX_KEYS = ('name', 'provider', 'user', 'password', 'host', 'port', 'folder', 'label', 'ms_client_id', 'ms_tenant', 'oauth_refresh',
+            'active', 'send_from', 'uidvalidity', 'last_uid', 'last_check', 'last_result')
 
 # Generic, public sender domains of Indian banks, card issuers, brokers, depositories and registrars (edit on the page).
 # 'bank.in' is the domain reserved for regulated Indian banks.
@@ -70,7 +79,46 @@ kfintech.com"""
 
 DEFAULTS = {'host': 'imap.gmail.com', 'port': '993', 'user': '', 'password': '', 'folder': 'INBOX', 'label': 'FinanceHub',
             'interval': '15', 'enabled': '0', 'auto_import': '1', 'since_days': '60', 'senders': DEFAULT_SENDERS,
-            'forwarders': '', 'last_check': '', 'last_result': '', 'uidvalidity': '', 'last_uid': '0'}
+            'forwarders': '', 'last_check': '', 'last_result': '', 'uidvalidity': '', 'last_uid': '0',
+            'provider': '', 'ms_client_id': '', 'ms_tenant': 'common', 'oauth_refresh': ''}     # 1.8: Outlook (Microsoft sign-in)
+PROVIDERS = {'gmail': ('Gmail', 'imap.gmail.com', '993', 'FinanceHub'),
+             'outlook': ('Outlook.com / Hotmail / Microsoft 365', 'outlook.office365.com', '993', ''),
+             'other': ('Another mailbox (IMAP with a password)', '', '993', '')}
+
+
+def provider(s):
+    p = s.get('provider') or ''
+    if p in PROVIDERS:
+        return p
+    h = (s.get('host') or '').lower()
+    return 'gmail' if 'gmail' in h or 'google' in h else ('outlook' if 'outlook' in h or 'office365' in h or 'hotmail' in h else 'other')
+
+
+def configured(s):
+    """The mailbox can be used: an address and a password, or (Outlook) a Microsoft sign-in."""
+    if not s.get('user'):
+        return False
+    if provider(s) == 'outlook':
+        return bool(s.get('ms_client_id') and s.get('oauth_refresh'))
+    return bool(s.get('password') and s.get('host'))
+
+
+def explain(e, s):
+    """A plain-language reason for a failed mailbox connection."""
+    msg = str(e)
+    low = msg.lower()
+    if 'application-specific password' in low or ('gmail' in (s.get('host') or '') and 'web login required' in low):
+        return ('Gmail needs an app password, not your normal Gmail password: turn on 2-Step Verification for that Google '
+                'account, create an app password at myaccount.google.com/apppasswords and paste it here.')
+    if provider(s) == 'outlook' and ('authenticate failed' in low or 'not signed in' in low or 'expired' in low):
+        return 'the Microsoft sign-in is missing or has expired — click “Sign in with Microsoft” again.'
+    if 'authenticationfailed' in low or 'invalid credentials' in low or 'authentication failed' in low:
+        return ('the mailbox refused the address / password' + (' (Gmail needs an app password)' if provider(s) == 'gmail' else '') + '.')
+    if 'not enabled for imap' in low or 'imap access is disabled' in low:
+        return 'IMAP is turned off for this mailbox — in Gmail: Settings › Forwarding and POP/IMAP › Enable IMAP › Save.'
+    if 'logindisabled' in low or 'basicauthblocked' in low or 'basic auth' in low:
+        return 'this mailbox does not accept passwords — for Outlook.com choose “Outlook.com” and sign in with Microsoft.'
+    return msg
 EXTS = ('.pdf', '.csv', '.xlsx', '.xls')
 MAX_FILE = 20 * 1024 * 1024
 MAX_PER_RUN = 30
@@ -88,20 +136,112 @@ VAULT = None
 
 def ensure_schema(con):
     con.executescript(SCHEMA)
+    if 'mailbox_id' not in {r[1] for r in con.execute('PRAGMA table_info(mail_items)')}:
+        con.execute('ALTER TABLE mail_items ADD COLUMN mailbox_id INTEGER')
     for k, v in DEFAULTS.items():
-        con.execute('INSERT OR IGNORE INTO mail_settings (key, value) VALUES (?,?)', (k, v))
+        if k not in _MOVED:                     # mailbox fields live in the mailboxes table since 1.8
+            con.execute('INSERT OR IGNORE INTO mail_settings (key, value) VALUES (?,?)', (k, v))
     con.commit()
 
 
-def settings(con):
+def shared(con):
+    """Settings that apply to every mailbox (senders, forwarders, how often, …)."""
     s = dict(DEFAULTS)
     s.update({k: v for k, v in con.execute('SELECT key, value FROM mail_settings')})
     return s
 
 
+def boxes(con, active_only=False):
+    """All mailboxes. The single mailbox of 1.5 – 1.7 (kept in mail_settings) becomes the first one."""
+    if not con.execute("SELECT 1 FROM sqlite_master WHERE name='mailboxes'").fetchone():
+        ensure_schema(con)
+    rows = [dict(r) for r in con.execute('SELECT * FROM mailboxes ORDER BY send_from DESC, id')]
+    if not rows:
+        old = shared(con)
+        if old.get('user') and old.get('migrated') != '1':
+            prov = provider(old)
+            con.execute('INSERT INTO mailboxes (name, provider, user, password, host, port, folder, label, ms_client_id, ms_tenant, '
+                        'oauth_refresh, active, send_from, uidvalidity, last_uid, last_check, last_result) '
+                        'VALUES (?,?,?,?,?,?,?,?,?,?,?,1,1,?,?,?,?)',
+                        (PROVIDERS[prov][0].split(' /')[0], prov, old['user'], old.get('password', ''), old.get('host') or PROVIDERS[prov][1],
+                         old.get('port') or '993', old.get('folder') or 'INBOX', old.get('label', ''), old.get('ms_client_id', ''),
+                         old.get('ms_tenant') or 'common', old.get('oauth_refresh', ''), old.get('uidvalidity', ''),
+                         old.get('last_uid') or '0', old.get('last_check', ''), old.get('last_result', '')))
+            con.execute("INSERT OR REPLACE INTO mail_settings (key, value) VALUES ('migrated', '1')")
+            con.execute('UPDATE mail_items SET mailbox_id=(SELECT MIN(id) FROM mailboxes) WHERE mailbox_id IS NULL')
+            con.execute(f"DELETE FROM mail_settings WHERE key IN ({','.join('?' * len(_MOVED))})", _MOVED)   # no second copy of the password
+            con.commit()
+            rows = [dict(r) for r in con.execute('SELECT * FROM mailboxes ORDER BY send_from DESC, id')]
+    return [r for r in rows if r.get('active')] if active_only else rows
+
+
+def settings(con, mid=None):
+    """Shared settings + one mailbox (by id; default: the one reminders are sent from, else the first)."""
+    s = shared(con)
+    bs = boxes(con)
+    b = next((x for x in bs if x['id'] == mid), None) if mid else (next((x for x in bs if x.get('send_from')), None) or (bs[0] if bs else None))
+    for k in BOX_KEYS:
+        s[k] = '' if k not in ('active', 'send_from', 'last_uid') else s.get(k, 0)
+    s['id'] = None
+    if b:
+        s.update({k: ('' if v is None else v) for k, v in b.items()})
+        s['port'] = str(s['port'] or '993')
+        s['last_uid'] = str(s['last_uid'] or '0')
+    return s
+
+
 def _set(con, **kw):
+    """Shared settings only (mailbox fields go through _set_box)."""
     for k, v in kw.items():
         con.execute('INSERT OR REPLACE INTO mail_settings (key, value) VALUES (?,?)', (k, str(v)))
+
+
+def _set_box(con, mid, **kw):
+    kw = {k: v for k, v in kw.items() if k in BOX_KEYS}
+    if mid and kw:
+        con.execute(f"UPDATE mailboxes SET {', '.join(k + '=?' for k in kw)} WHERE id=?", (*[str(v) if v is not None else '' for v in kw.values()], mid))
+
+
+def save_box(con, mid=None, **kw):
+    """Create (mid None) or change a mailbox. → id"""
+    if not mid:
+        mid = con.execute("INSERT INTO mailboxes (name, provider, folder, ms_tenant, active, send_from, last_uid) VALUES ('', 'gmail', 'INBOX', 'common', 1, ?, '0')",
+                          (0 if con.execute('SELECT 1 FROM mailboxes').fetchone() else 1,)).lastrowid
+    _set_box(con, mid, **kw)
+    return mid
+
+
+def save_box_form(con, mid, f):
+    """Add (mid None) or change a mailbox from the page's form fields (also used by the setup wizard). → id"""
+    old = settings(con, mid) if mid else {'provider': '', 'user': '', 'ms_client_id': '', 'host': '', 'port': '993', 'label': '',
+                                          'folder': 'INBOX', 'ms_tenant': 'common', 'name': ''}
+    prov = f.get('provider') if f.get('provider') in PROVIDERS else (provider(old) if mid else 'gmail')
+    kw = {k: f.get(k, old.get(k) or '').strip()[:200] for k in ('name', 'user', 'host', 'port', 'folder', 'label', 'ms_client_id', 'ms_tenant')}
+    kw['provider'] = prov
+    if not mid or prov != provider(old):                # a new mailbox, or a new type: fill in its server
+        _n, host, port, label = PROVIDERS[prov]
+        kw.update(host=f.get('host', '').strip() or host or kw['host'], port=f.get('port', '').strip() or port,
+                  label=label if 'label' not in f else kw['label'])
+        if prov == 'outlook':
+            kw['password'] = ''
+    if prov == 'outlook':
+        import oauth_ms
+        kw['host'], kw['port'] = kw['host'] or oauth_ms.IMAP_HOST, kw['port'] or str(oauth_ms.IMAP_PORT)
+        if mid and (kw['ms_client_id'] != (old.get('ms_client_id') or '') or kw['user'].lower() != (old.get('user') or '').lower()):
+            kw['oauth_refresh'] = ''                    # a different app or mailbox needs a new sign-in
+    elif mid and old.get('oauth_refresh'):
+        kw['oauth_refresh'] = ''                        # no longer an Outlook mailbox: forget the Microsoft sign-in
+    kw['ms_tenant'] = kw.get('ms_tenant') if kw.get('ms_tenant') in ('common', 'consumers', 'organizations') else 'common'
+    kw['label'] = re.sub(r'[^A-Za-z0-9 _/-]', '', kw.get('label', ''))
+    kw['folder'] = kw.get('folder') or 'INBOX'
+    kw['name'] = kw.get('name') or (kw['user'].split('@')[-1] if kw.get('user') else PROVIDERS[prov][0].split(' /')[0])
+    if 'active' in f or 'box_form' in f:
+        kw['active'] = '1' if f.get('active') else '0'
+    if f.get('password', '').strip() and prov != 'outlook':
+        kw['password'] = f['password'].strip().replace(' ', '')     # Gmail shows app passwords in groups of four
+    if mid and (kw.get('user', '').lower() != (old.get('user') or '').lower() or kw.get('folder') != old.get('folder') or kw.get('host') != old.get('host')):
+        kw.update(last_uid='0', uidvalidity='')
+    return save_box(con, mid, **kw)
 
 
 def _lines(text):
@@ -163,9 +303,13 @@ def forwarded_from(text):
 class Imap:
     """Thin, read-mostly IMAP client (SSL only)."""
 
-    def __init__(self, host, port, user, password, timeout=30):
+    def __init__(self, host, port, user, password, timeout=30, oauth_token=None):
         self.m = imaplib.IMAP4_SSL(host, int(port or 993), ssl_context=ssl.create_default_context(), timeout=timeout)
-        self.m.login(user, password)
+        if oauth_token:                                  # 1.8: Outlook — SASL XOAUTH2 with a Microsoft access token
+            import oauth_ms
+            self.m.authenticate('XOAUTH2', lambda _challenge: oauth_ms.xoauth2(user, oauth_token).encode())
+        else:
+            self.m.login(user, password)
         self.caps = {c.upper() for c in self.m.capabilities}
 
     @staticmethod
@@ -210,6 +354,8 @@ class Imap:
         raise RuntimeError('message not found')
 
     def label(self, uid, label):
+        if not label:
+            return                                       # no label chosen (e.g. Outlook): mails are left exactly as they are
         try:
             if 'X-GM-EXT-1' in self.caps:
                 self.m.uid('STORE', str(uid), '+X-GM-LABELS', f'({self._q(label)})')
@@ -226,7 +372,17 @@ class Imap:
             pass
 
 
-def connect(s, factory=None):
+def connect(s, factory=None, con=None):
+    if provider(s) == 'outlook':
+        import oauth_ms
+        token, newest = oauth_ms.access_token(s['ms_client_id'], s.get('ms_tenant') or 'common', s.get('oauth_refresh'), s['user'])
+        if con is not None and newest and newest != s.get('oauth_refresh') and s.get('id'):
+            _set_box(con, s['id'], oauth_refresh=newest)     # Microsoft hands out a new refresh token now and then
+            con.commit()
+        host, port = s.get('host') or oauth_ms.IMAP_HOST, s.get('port') or oauth_ms.IMAP_PORT
+        if factory:
+            return factory(host, port, s['user'], token)
+        return Imap(host, port, s['user'], None, oauth_token=token)
     return (factory or Imap)(s['host'], s['port'], s['user'], s['password'])
 
 
@@ -368,11 +524,40 @@ def process_file(con, data, fname, trusted, auto):
             VT.secure_delete(tmp)
 
 
-def check_mail(con, factory=None, force=False):
-    """One pass over the mailbox. → summary dict"""
-    s = settings(con)
-    if not s['user'] or not s['password']:
-        return {'ok': False, 'msg': 'Enter the mailbox address and its app password first.'}
+def check_mail(con, factory=None, force=False, mid=None):
+    """One pass over every active mailbox (or just one). → summary dict"""
+    targets = [b for b in boxes(con, active_only=not mid) if not mid or b['id'] == mid]
+    if not targets:
+        return {'ok': False, 'msg': 'Add a mailbox first.'}
+    total = {'ok': True, 'checked': 0, 'imported': 0, 'review': 0, 'ignored': 0, 'rejected': 0, 'alerts': 0,
+             'duplicates': 0, 'errors': 0, 'skipped': 0, 'more': False}
+    msgs, oks = [], []
+    for b in targets:
+        s = settings(con, b['id'])
+        if len(targets) > 1 and not configured(s):
+            msgs.append(f"{s.get('name') or s['user']}: not set up yet")
+            continue
+        r = _check_box(con, s, factory)
+        con.execute('UPDATE mail_items SET mailbox_id=? WHERE mailbox_id IS NULL', (b['id'],))
+        con.commit()
+        oks.append(r.get('ok'))
+        for k in total:
+            if k not in ('ok', 'more') and isinstance(r.get(k), int):
+                total[k] += r[k]
+        total['more'] = total['more'] or r.get('more', False)
+        msgs.append((f"{s.get('name') or s['user']}: " if len(targets) > 1 else '') + r.get('msg', ''))
+    total['ok'] = any(oks) if oks else False
+    total['msg'] = ' · '.join(msgs)
+    _set(con, last_check=datetime.now().isoformat(timespec='seconds'), last_result=total['msg'][:300])
+    con.commit()
+    return total
+
+
+def _check_box(con, s, factory=None):
+    """One pass over one mailbox (s = settings(con, mailbox id))."""
+    if not configured(s):
+        return {'ok': False, 'msg': ('Sign in with Microsoft first.' if provider(s) == 'outlook'
+                                     else 'Enter the mailbox address and its app password first.')}
     allowed = _lines(s['senders'])
     forwarders = _lines(s['forwarders'])
     auto = s['auto_import'] == '1'
@@ -380,12 +565,10 @@ def check_mail(con, factory=None, force=False):
     summary = {'ok': True, 'checked': 0, 'imported': 0, 'review': 0, 'ignored': 0, 'rejected': 0, 'alerts': 0,
                'duplicates': 0, 'errors': 0, 'skipped': 0, 'more': False}
     try:
-        cli = connect(s, factory)
+        cli = connect(s, factory, con)
     except Exception as e:  # noqa: BLE001
-        msg = str(e)
-        if 'AUTHENTICATIONFAILED' in msg.upper() or 'invalid credentials' in msg.lower():
-            msg = 'the mailbox refused the address / app password'
-        _set(con, last_check=datetime.now().isoformat(timespec='seconds'), last_result=f'Could not connect: {msg}'[:300])
+        msg = explain(e, s)
+        _set_box(con, s['id'], last_check=datetime.now().isoformat(timespec='seconds'), last_result=f'Could not connect: {msg}'[:300])
         con.commit()
         return {'ok': False, 'msg': f'Could not connect: {msg}'}
     try:
@@ -489,7 +672,7 @@ def check_mail(con, factory=None, force=False):
                 if key:
                     summary[key] += 1
             con.commit()
-            cli.label(uid, s['label'] or 'FinanceHub')
+            cli.label(uid, s['label'])                 # empty label (Outlook / other): mails stay as they are
             last_uid = max(last_uid, uid)
         parts = [f"{summary[k]} {w}" for k, w in (('imported', 'imported'), ('review', 'waiting for you'), ('alerts', 'alerts kept'),
                                                    ('duplicates', 'already in the Hub'), ('skipped', 'not statements'),
@@ -498,13 +681,13 @@ def check_mail(con, factory=None, force=False):
         result = ('New mail: ' + ', '.join(parts)) if parts else 'No new statement mails.'
         if summary['more']:
             result += ' More mails are waiting — they are read on the next check.'
-        _set(con, uidvalidity=uv, last_uid=last_uid, last_check=datetime.now().isoformat(timespec='seconds'), last_result=result)
+        _set_box(con, s['id'], uidvalidity=uv, last_uid=last_uid, last_check=datetime.now().isoformat(timespec='seconds'), last_result=result)
         con.commit()
         summary['msg'] = result
         return summary
     except Exception as e:  # noqa: BLE001
         con.rollback()
-        _set(con, last_check=datetime.now().isoformat(timespec='seconds'), last_result=f'Mail check failed: {e}'[:300])
+        _set_box(con, s['id'], last_check=datetime.now().isoformat(timespec='seconds'), last_result=f'Mail check failed: {e}'[:300])
         con.commit()
         return {'ok': False, 'msg': f'Mail check failed: {e}'}
     finally:
@@ -522,8 +705,8 @@ def refresh_review(con):
 
 
 def due(con):
-    s = settings(con)
-    if s['enabled'] != '1' or not s['user'] or not s['password']:
+    s = shared(con)
+    if s['enabled'] != '1' or not any(configured(settings(con, b['id'])) for b in boxes(con, active_only=True)):
         return False
     if not s['last_check']:
         return True
@@ -550,9 +733,8 @@ def register(app, get_db, upload_dir, vault):
         try:
             if VAULT.unlocked:
                 c = get_db()
-                if c.execute("SELECT 1 FROM sqlite_master WHERE name='mail_settings'").fetchone():
-                    s = settings(c)
-                    on = s['enabled'] == '1' and bool(s['user']) and bool(s['password'])
+                if c.execute("SELECT 1 FROM sqlite_master WHERE name='mailboxes'").fetchone():
+                    on = shared(c)['enabled'] == '1' and any(configured(settings(c, b['id'])) for b in boxes(c, active_only=True))
                     waiting = c.execute("SELECT COUNT(*) FROM mail_items WHERE status='review'").fetchone()[0]
         except Exception:  # noqa: BLE001
             pass
@@ -561,57 +743,147 @@ def register(app, get_db, upload_dir, vault):
     def mail_page():
         con = con_()
         refresh_review(con)
-        s = settings(con)
+        s = shared(con)
+        bl = []
+        for b in boxes(con):
+            bs = settings(con, b['id'])
+            bl.append(dict(bs, kind=provider(bs), ready=configured(bs), signed_in=bool(bs.get('oauth_refresh')),
+                           has_password=bool(bs.get('password'))))
         tab = request.args.get('tab', 'statements')
         where = {'statements': "kind IN ('statement','contract_note','depository','other') AND status NOT IN ('ignored','rejected')",
                  'review': "status='review'", 'alerts': "status='alert'", 'ignored': "status IN ('ignored','rejected')"}.get(tab, '1')
-        items = con.execute(f'SELECT * FROM mail_items WHERE {where} ORDER BY received DESC, id DESC LIMIT 300').fetchall()
+        items = con.execute(f'SELECT i.*, b.name AS box_name, b.user AS box_user FROM mail_items i LEFT JOIN mailboxes b ON b.id=i.mailbox_id '
+                            f'WHERE {where} ORDER BY received DESC, i.id DESC LIMIT 300').fetchall()
         counts = {k: con.execute(f'SELECT COUNT(*) FROM mail_items WHERE {w}').fetchone()[0] for k, w in (
             ('review', "status='review'"), ('alerts', "status='alert'"), ('ignored', "status IN ('ignored','rejected')"))}
-        return render_template('mail.html', s=s, items=items, tab=tab, counts=counts, STATUS=STATUS,
-                               has_password=bool(s['password']), configured=bool(s['user'] and s['password']))
+        edit = request.args.get('box')
+        editing = next((b for b in bl if str(b['id']) == edit), None) if edit and edit != 'new' else None
+        new_kind = request.args.get('kind') if request.args.get('kind') in PROVIDERS else 'gmail'
+        return render_template('mail.html', s=s, items=items, tab=tab, counts=counts, STATUS=STATUS, PROVIDERS=PROVIDERS,
+                               boxes=bl, configured=any(b['ready'] for b in bl), editing=editing,
+                               adding=(edit == 'new' or not bl), new_kind=new_kind, many=len(bl) > 1)
 
     def mail_settings_save():
+        """Shared reading rules (and, for older forms, the first mailbox's address / password)."""
         con = con_()
         f = request.form
-        old = settings(con)
         kw = {}
-        for k in ('host', 'port', 'user', 'folder', 'label', 'interval', 'since_days'):
-            kw[k] = f.get(k, old[k]).strip()[:200]                  # 1.6: fields not on the form keep their value
-        kw['label'] = re.sub(r'[^A-Za-z0-9 _/-]', '', kw.get('label', 'FinanceHub')) or 'FinanceHub'
-        kw['interval'] = str(max(5, min(1440, int(kw.get('interval') or 15)))) if (kw.get('interval') or '15').isdigit() else '15'
-        kw['since_days'] = str(max(1, min(400, int(kw.get('since_days') or 60)))) if (kw.get('since_days') or '60').isdigit() else '60'
+        for k in ('interval', 'since_days'):
+            if k in f:
+                kw[k] = f.get(k, '').strip()
+        if 'interval' in kw:
+            kw['interval'] = str(max(5, min(1440, int(kw['interval'] or 15)))) if kw['interval'].isdigit() else '15'
+        if 'since_days' in kw:
+            kw['since_days'] = str(max(1, min(400, int(kw['since_days'] or 60)))) if kw['since_days'].isdigit() else '60'
         if 'senders' in f:
             kw['senders'] = '\n'.join(dict.fromkeys(_lines(f['senders'])))
         if 'forwarders' in f:
             kw['forwarders'] = '\n'.join(dict.fromkeys(a for a in _lines(f['forwarders']) if '@' in a))
         kw['enabled'] = '1' if f.get('enabled') else '0'
         kw['auto_import'] = '1' if f.get('auto_import') else '0'
-        if f.get('password', '').strip():
-            kw['password'] = f['password'].strip().replace(' ', '')       # Gmail shows app passwords in groups of four
-        if kw.get('user') != old['user'] or kw.get('folder') != old['folder'] or kw.get('host') != old['host']:
-            kw.update(last_uid='0', uidvalidity='')
         _set(con, **kw)
+        if f.get('user', '').strip():                       # older single-mailbox form (and the setup wizard)
+            bs = boxes(con)
+            save_box_form(con, bs[0]['id'] if bs else None, f)
         con.commit()
-        flash('Mailbox settings saved.', 'success')
+        flash('Mail settings saved.', 'success')
         return redirect(url_for('mail_page', tab=request.form.get('tab', 'statements')))
 
-    def mail_test():
+
+    def box_save():
         con = con_()
-        s = settings(con)
+        mid = request.form.get('box_id', type=int)
+        if mid and not con.execute('SELECT 1 FROM mailboxes WHERE id=?', (mid,)).fetchone():
+            mid = None
+        if not request.form.get('user', '').strip():
+            flash('Enter the mailbox address.', 'warning')
+            return redirect(url_for('mail_page', box=mid or 'new', kind=request.form.get('provider')))
+        mid = save_box_form(con, mid, request.form)
+        con.commit()
+        s = settings(con, mid)
+        flash('Mailbox saved.' + (' Now click “Sign in with Microsoft”.' if provider(s) == 'outlook' and not s.get('oauth_refresh') else ''), 'success')
+        return redirect(url_for('mail_page', box=mid) if provider(s) == 'outlook' and not s.get('oauth_refresh') else url_for('mail_page'))
+
+    def box_action(mid):
+        con = con_()
+        a = request.form.get('action')
+        b = con.execute('SELECT * FROM mailboxes WHERE id=?', (mid,)).fetchone()
+        if not b:
+            return redirect(url_for('mail_page'))
+        if a == 'remove':
+            con.execute('DELETE FROM mailboxes WHERE id=?', (mid,))
+            if b['send_from'] and (first := con.execute('SELECT id FROM mailboxes ORDER BY id LIMIT 1').fetchone()):
+                con.execute('UPDATE mailboxes SET send_from=1 WHERE id=?', (first[0],))
+            flash(f"Mailbox {b['user']} removed (mails already read stay in the Hub).", 'info')
+        elif a == 'send_from':
+            con.execute('UPDATE mailboxes SET send_from=CASE WHEN id=? THEN 1 ELSE 0 END', (mid,))
+            flash(f"Reminders and problem reports are now sent from {b['user']}.", 'success')
+        elif a == 'toggle':
+            con.execute('UPDATE mailboxes SET active=1-COALESCE(active,1) WHERE id=?', (mid,))
+            flash(f"{b['user']}: {'paused' if b['active'] else 'read again'}.", 'info')
+        elif a == 'signout':
+            _set_box(con, mid, oauth_refresh='')
+            flash('Signed out of Microsoft — the Hub no longer has access to that mailbox.', 'info')
+        con.commit()
+        return redirect(url_for('mail_page'))
+
+    def mail_test(mid=None):
+        con = con_()
+        mid = mid or request.form.get('box_id', type=int)
+        s = settings(con, mid)
         try:
-            cli = connect(s)
+            cli = connect(s, app.config.get('HUB_IMAP_FACTORY'), con)
             try:
                 cli.select(s['folder'] or 'INBOX')
             finally:
                 cli.close()
-            flash('Connected to the mailbox ✓', 'success')
+            flash(f"Connected to {s['user']} ✓", 'success')
         except Exception as e:  # noqa: BLE001
-            msg = str(e)
-            if 'AUTHENTICATIONFAILED' in msg.upper() or 'invalid credentials' in msg.lower():
-                msg = 'the mailbox refused the address / app password'
-            flash(f'Could not connect: {msg}', 'danger')
+            flash(f"Could not connect to {s['user'] or 'the mailbox'}: {explain(e, s)}", 'danger')
         return redirect(url_for('mail_page'))
+
+    # ── 1.8: Sign in with Microsoft (device code), per mailbox ─────────────
+    def ms_start(mid):
+        import oauth_ms
+        con = con_()
+        s = settings(con, mid)
+        try:
+            pending = oauth_ms.start(s.get('ms_client_id', ''), s.get('ms_tenant') or 'common')
+        except Exception as e:  # noqa: BLE001
+            return jsonify({'ok': False, 'msg': str(e)})
+        oauth_ms.DEVICE[(VAULT.user, mid)] = pending
+        if pending.get('tenant') and pending['tenant'] != s.get('ms_tenant'):
+            _set_box(con, mid, ms_tenant=pending['tenant'])
+            con.commit()
+        return jsonify({'ok': True, 'user_code': pending['user_code'], 'verification_uri': pending.get('verification_uri'),
+                        'interval': int(pending.get('interval', 5)), 'expires_in': int(pending.get('expires_in', 900))})
+
+    def ms_poll(mid):
+        import oauth_ms
+        con = con_()
+        s = settings(con, mid)
+        pending = oauth_ms.DEVICE.get((VAULT.user, mid))
+        if not pending:
+            return jsonify({'state': 'error', 'msg': 'no sign-in in progress — click “Sign in with Microsoft”'})
+        try:
+            state, payload = oauth_ms.poll(s['ms_client_id'], pending)
+        except Exception as e:  # noqa: BLE001
+            return jsonify({'state': 'pending', 'msg': f'waiting ({str(e)[:80]})'})
+        if state == 'ok':
+            oauth_ms.DEVICE.pop((VAULT.user, mid), None)
+            fresh_box = not s.get('oauth_refresh')
+            _set_box(con, mid, oauth_refresh=payload['refresh_token'], provider='outlook',
+                     **({'last_uid': '0', 'uidvalidity': ''} if fresh_box else {}))
+            acct = payload.get('account') or ''
+            if acct and '@' in acct and acct != (s.get('user') or '').lower():
+                flash(f"You signed in to Microsoft as {acct}, but this mailbox is {s['user']}. If reading fails, sign in again "
+                      f"with {s['user']} (in the Microsoft page choose “Use another account”), or change the mailbox address.", 'warning')
+            con.commit()
+            return jsonify({'state': 'ok'})
+        if state == 'error':
+            oauth_ms.DEVICE.pop((VAULT.user, mid), None)
+            return jsonify({'state': 'error', 'msg': payload})
+        return jsonify({'state': 'pending'})
 
     def mail_check():
         con = con_()
@@ -658,7 +930,7 @@ def register(app, get_db, upload_dir, vault):
             s = settings(con)
             _set(con, senders='\n'.join(dict.fromkeys(_lines(s['senders']) + [it['from_domain']])))
             con.execute("DELETE FROM mail_items WHERE from_domain=? AND status='ignored'", (it['from_domain'],))
-            _set(con, last_uid='0')                 # read those mails again on the next check
+            con.execute("UPDATE mailboxes SET last_uid='0'")   # read those mails again on the next check
             flash(f'{it["from_domain"]} added to the sender list — its mails are read on the next check.', 'success')
         elif act == 'dismiss':
             _erase_blob(con, iid)
@@ -702,5 +974,10 @@ def register(app, get_db, upload_dir, vault):
         ('/mail/<int:iid>', 'mail_item', mail_item, ['POST']),
         ('/mail/<int:iid>/text', 'mail_alert_text', mail_alert_text, ['GET']),
         ('/mail/forget', 'mail_forget', mail_forget, ['POST']),
+        ('/mail/box/save', 'mail_box_save', box_save, ['POST']),
+        ('/mail/box/<int:mid>', 'mail_box_action', box_action, ['POST']),
+        ('/mail/box/<int:mid>/test', 'mail_box_test', mail_test, ['POST']),
+        ('/mail/box/<int:mid>/ms/start', 'mail_ms_start', ms_start, ['POST']),
+        ('/mail/box/<int:mid>/ms/poll', 'mail_ms_poll', ms_poll, ['POST']),
     ]:
         app.add_url_rule(rule, ep, fn, methods=methods)

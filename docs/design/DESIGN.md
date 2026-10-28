@@ -1,8 +1,8 @@
 # Finance Hub — Design manual
 
-Version 1.7 · 28 October 2026 · Statement Reader engine v14 · internal, for maintainers
+Version 1.8 · 28 October 2026 · Statement Reader engine v14 · internal, for maintainers
 
-This manual explains how Finance Hub is built and why. It is written for developers and for an AI assistant continuing the work, and describes the 1.7 code in this repository. When code and manual disagree, the code wins and the manual is corrected in the same change. The user manual (docs/user/) covers the same features from the user's side.
+This manual explains how Finance Hub is built and why. It is written for developers and for an AI assistant continuing the work, and describes the 1.8 code in this repository. When code and manual disagree, the code wins and the manual is corrected in the same change. The user manual (docs/user/) covers the same features from the user's side.
 
 > **Note:** Names of modules, functions, tables and columns are written exactly as in the code. Examples use made-up values.
 
@@ -95,7 +95,8 @@ Why one worker thread: the database is a single in-memory SQLite connection (sec
 | investments.py | broker files, trades, holdings, portfolio, tranching, instructions, HOOKS | inv_brokers, inv_securities, inv_imports, inv_trades, inv_holdings, inv_instructions, inv_settings | /investments and /investments/… |
 | contract_notes/ | contract-note readers and totals check | — | — |
 | depository.py | demat accounts, CAS reading, reconciliation | inv_demats | /investments/demat…, /report/demat/<fmt> |
-| mailreader.py | the Hub's mailbox: IMAP, sender checks, auto-import, review | mail_settings, mail_items | /mail, /mail/… (settings, test, check, poll, forget, <iid>, review, text) |
+| mailreader.py | the Hub's mailboxes: IMAP (password or XOAUTH2), sender checks, auto-import, review; several mailboxes (1.8) | mail_settings, mailboxes, mail_items | /mail, /mail/… (settings, test, check, poll, forget, <iid>, review, text), /mail/box/save, /mail/box/<mid> (remove, send_from, toggle, signout), /mail/box/<mid>/test, /mail/box/<mid>/ms/start, …/ms/poll |
+| oauth_ms.py | Sign in with Microsoft (1.8): OAuth 2.0 device-code flow, refresh-token rotation, XOAUTH2 string (8.5) | — (refresh token stored in mailboxes.oauth_refresh) | — |
 | notify.py | reminder and weekly mails, outbox, scheduler | notify_settings | /reminders, /reminders/save, /reminders/test |
 | refunds.py | failed payments, refunds, awaiting refund | txn_refunds | /refunds, /refunds/<rid>, /refunds/expect, /refunds/<rid>/candidates |
 | reports_hub.py | section model to xlsx and pdf | (reads all) | /report/view/<fmt> and trades, transfers, director, reimbursements, people-loans |
@@ -390,7 +391,7 @@ Account names are keys: transactions.account = accounts.name, also loans.card, s
 | refunds | txn_refunds | kind failed/refund/expected, debit_id, credit_id, status suggested/confirmed/rejected/waiting/received/closed, expected, follow_up_days, prev_debit_cat, prev_credit_cat |
 | investments, assets | inv_brokers, inv_securities, inv_imports, inv_trades, inv_holdings, inv_instructions, inv_settings, inv_asset_types | securities (symbol+exchange unique, isin, bucket core/satellite, plan_status, cmp, asset_type); imports (file_hash unique); trades (broker_id, security_id, trade_date, side, qty, price, charges, trade_id); holdings (broker_id or demat_id, as_of, qty, close_price); instructions BUY/ADD/TRIM/SELL |
 | depository | inv_demats | depository CDSL/NSDL, dp_name, dp_id, client_id, account_no (unique), broker_id; adds demat_id to inv_holdings and inv_imports |
-| mailreader, notify | mail_settings, mail_items, notify_settings | key/value settings (mailbox, allowlist, last_uid; reminder options); mail_items (message_id, from_domain, auth, status, kind, file_hash, blob, note, result) |
+| mailreader, notify | mail_settings, mailboxes, mail_items, notify_settings | mail_settings: key/value rules shared by every mailbox (senders, forwarders, interval, since_days, enabled, auto_import, last_check/result, migrated); mailboxes (1.8): one row per mailbox (name, provider gmail/outlook/other, user, password, host, port, folder, label, ms_client_id, ms_tenant, oauth_refresh, active, send_from, uidvalidity, last_uid, last_check, last_result); mail_items (message_id, mailbox_id, from_domain, auth, status, kind, file_hash, blob, note, result); notify_settings: reminder options |
 | compounding | cc_users, cc_actuals | planner users (params, goal JSON) and year-end records |
 
 ## 7. Classification
@@ -490,7 +491,11 @@ Equality uses EPS 0.001. The by-broker view sums linked demats at the earliest o
 
 #### IMAP flow
 
-1. IMAP4_SSL (port 993) with a default SSL context; LOGIN with the address and app password from mail_settings.
+check_mail() loops over the active mailboxes (boxes(con, active_only=True); with more than one, a mailbox that is not configured is skipped with "not set up yet") and calls _check_box() for each with settings(con, id) = the shared rules + that mailbox's row. Message-IDs are deduplicated across all mailboxes, so a mail in two mailboxes is read once; new mail_items rows get that mailbox's id. Per-mailbox state (uidvalidity, last_uid, last_check, last_result) is written with _set_box; the overall last_check / last_result go to mail_settings.
+
+**Migration (1.8).** boxes() turns the single mailbox of 1.5–1.7 (user, password, host … in mail_settings) into mailboxes row 1 with send_from=1, keeping last_uid / uidvalidity, sets mail_settings.migrated=1 and deletes the moved keys (_MOVED) so no second copy of the password remains; ensure_schema no longer seeds those keys. The same migration gives items read before 1.8 (mailbox_id NULL) the migrated mailbox's id.
+
+1. IMAP4_SSL (port 993) with a default SSL context; LOGIN with the address and app password (Gmail / other), or for Outlook AUTHENTICATE XOAUTH2 with a Microsoft access token (connect(); 8.5).
 2. SELECT the folder; a new UIDVALIDITY resets last_uid.
 3. UID SEARCH SINCE today - since_days (default 60), narrowed to last_check - 2 days once last_uid is known; UIDs above last_uid, at most 120 per run.
 4. Header first: UID FETCH BODY.PEEK[HEADER.FIELDS (FROM SUBJECT DATE MESSAGE-ID)] RFC822.SIZE; known Message-IDs skipped.
@@ -506,7 +511,7 @@ Equality uses EPS 0.001. The by-broker view sums linked demats at the earliest o
 
 mail_settings.senders lists domains (DEFAULT_SENDERS: generic public domains of Indian banks, card issuers, brokers, depositories, registrars; bank.in is reserved for regulated banks). domain_on_list accepts the domain or its subdomains, never look-alikes (fakebank.in does not match bank.in). Allow on an ignored mail adds its domain, deletes its ignored rows and resets last_uid.
 
-auth_check() trusts the receiving server's verdict and reads only the topmost Authentication-Results header, the one that server added last; lower headers may be forged by the sender. For a Gmail mailbox (trusted_servers_for) its authserv-id must be mx.google.com; other hosts are not restricted. pass = dmarc=pass with a matching header.from organisational domain, or dkim=pass whose header.d/header.i has the From address's organisational domain (aligned DKIM; org_domain knows co.in, bank.in, co.uk…). Otherwise fail or none, both rejected.
+auth_check() trusts the receiving server's verdict and reads only the topmost Authentication-Results header, the one that server added last; lower headers may be forged by the sender. For a Gmail mailbox (trusted_servers_for) its authserv-id must be mx.google.com; other hosts are not restricted. Microsoft (Outlook.com / Exchange Online) writes no authserv-id — its topmost header starts with spf=… and holds dmarc=pass action=none header.from=…, which the same rules read. pass = dmarc=pass with a matching header.from organisational domain, or dkim=pass whose header.d/header.i has the From address's organisational domain (aligned DKIM; org_domain knows co.in, bank.in, co.uk…). Otherwise fail or none, both rejected.
 
 #### Forwarded mails
 
@@ -524,6 +529,22 @@ Mails from mail_settings.forwarders must pass auth_check for the forwarder's dom
 - Review unseals to a temp file and opens the normal preview (Import page with pending=<token>, or the investments preview). Dismiss erases the copy; retry re-runs process_file with automatic import; forget clears handled history.
 - Checks run only while unlocked and a Hub page is open: base.html posts /mail/poll after 4 s and every 60 s while visible; due() checks enabled, credentials and interval; Check now forces a run. The scheduler never reads mail.
 - Limits: MAX_FILE 20 MB, MAX_PER_RUN 30, interval 5–1440 minutes (default 15), since_days 1–400.
+- explain(e, s) turns server errors into advice: Gmail "Application-specific password required" → make an app password; Outlook sign-in missing or expired; AUTHENTICATIONFAILED; IMAP not enabled; LOGINDISABLED / basic auth blocked → use Sign in with Microsoft; anything else is shown as the server said it.
+
+#### Mailbox page
+
+/mail lists the mailboxes (kind, ready, signed_in, has_password — never the secret), an add/edit form (?box=<id>|new&kind=gmail|outlook|other; the provider radios reload with the right fields), and the shared Reading rules form. _save_box_form() validates the provider, fills server defaults for a new mailbox or a new provider, keeps the saved password when the field is empty, and clears oauth_refresh when the client ID or address changes. Actions: remove (send_from moves to the first remaining mailbox), send_from (exactly one), toggle (active), signout (clears oauth_refresh). save_box_form() (module level, also used by the wizard) keeps a typed port, clears oauth_refresh when a mailbox stops being Outlook, and resets uidvalidity / last_uid when the address, folder or server changes. configured() needs a password and a server for Gmail / other, a client ID and a sign-in for Outlook. Each handled mail is labelled with the mailbox's own label; an empty label (the Outlook / other default) leaves mails untouched. The older POST /mail/settings with a user field still saves the first mailbox (kept for old forms).
+
+### 8.5 Sign in with Microsoft (oauth_ms.py)
+
+Outlook.com stopped accepting passwords and app passwords for IMAP/SMTP (basic authentication) in 2024, so Outlook mailboxes use OAuth 2.0.
+
+- **Registration.** The user registers a public client in Microsoft Entra: supported account types "any organizational directory and personal Microsoft accounts", "Allow public client flows" = Yes, no redirect URI, no secret. The Hub stores only the Application (client) ID (mailboxes.ms_client_id). No client ID ships with the Hub, so nothing about the user's sign-ins passes through a third party's app.
+- **Device code.** ms_start posts to https://login.microsoftonline.com/{tenant}/oauth2/v2.0/devicecode with scope "offline_access openid email https://outlook.office.com/IMAP.AccessAsUser.All https://outlook.office.com/SMTP.Send" and returns user_code / verification_uri to the page; the pending response is kept in oauth_ms.DEVICE[(user ID, mailbox id)], in memory only. The page polls ms_poll every interval seconds; poll() posts grant_type device_code to /token: authorization_pending / slow_down → pending; success → the refresh token goes into mailboxes.oauth_refresh (inside the encrypted database), and last_uid resets only for a first sign-in. signed_in_as() reads the email / preferred_username claim of the returned id_token (no signature check — it only compares); if it differs from the mailbox address the page warns that reading may fail.
+- **Tenant.** tenant 'common'; when Microsoft answers AADSTS9002331 (app for personal accounts only) _call retries on 'consumers' and the mailbox remembers it.
+- **Tokens.** access_token(client, tenant, refresh) returns a cached access token or redeems the refresh token. TOKENS is keyed only by a SHA-256 of the refresh token presented (and of the new one), valid until 2 minutes before expiry, so a cached token is reachable only by someone who holds that refresh token — never by mailbox address or across Hub users. Microsoft may return a new refresh token: access_token hands it back and connect() saves it to the mailbox (older ones stay valid until they expire). forget(user) clears TOKENS and that user's pending DEVICE entries; Vault.lock_now calls it. Errors pass through friendly() (AADSTS70002 public client flows, 700016 unknown client ID, 50020 account type, 65001 consent, invalid_grant expired / withdrawn).
+- **IMAP / SMTP.** IMAP outlook.office365.com:993, AUTHENTICATE XOAUTH2 with "user=<addr>^Aauth=Bearer <token>^A^A". SMTP smtp-mail.outlook.com:587 STARTTLS, EHLO, AUTH XOAUTH2 (notify.send_mail; smtp_for adds an 'oauth' dict with client_id, tenant, refresh). The outbox (10.2) therefore holds the refresh token instead of a password, under the same DPAPI protection.
+- **Not logged.** Codes, tokens and the client ID are never written to the log; the page shows only "Signed in with Microsoft ✓".
 
 ## 9. Ledger features
 
@@ -591,7 +612,7 @@ maybe_rebuild never touches the shared connection: snapshot_con() serialises V.c
 
 ### 10.4 DPAPI and SMTP
 
-_dpapi() wraps CryptProtectData/CryptUnprotectData via ctypes, binding the outbox to the Windows account so reminders can be sent while locked or after a restart. Off Windows only MEMORY is used. smtp_for() takes user and app password from mail_settings; the host is notify_settings.smtp_host or derived from the IMAP host (Gmail → smtp.gmail.com, imap.x → smtp.x); port 465 uses SMTP_SSL, others STARTTLS. /reminders/test sends a test report; HUB_SMTP_FACTORY lets tests replace the client.
+_dpapi() wraps CryptProtectData/CryptUnprotectData via ctypes, binding the outbox to the Windows account so reminders can be sent while locked or after a restart. Off Windows only MEMORY is used. smtp_for() takes user and app password from the mailbox marked send_from (MR.settings(con) without an id) — or, for Outlook, smtp-mail.outlook.com:587 with an 'oauth' dict (8.5); the host is notify_settings.smtp_host or derived from the IMAP host (Gmail → smtp.gmail.com, imap.x → smtp.x); port 465 uses SMTP_SSL, others STARTTLS. /reminders/test sends a test report; HUB_SMTP_FACTORY lets tests replace the client.
 
 ## 11. Viewing filter, reports and UI conventions
 
@@ -629,7 +650,7 @@ POST without skip writes:
 | Step | Writes |
 |---|---|
 | you | hub_settings.display_name (60 chars); a company name other than "personal" becomes an entities row (role 'book', aliases, sort_order 5) with INSERT OR IGNORE |
-| mail | only when an address is given: mail_settings user, password (spaces removed; kept if empty), enabled (automatic reading); recipients validated by notify.EMAIL_RE go to notify_settings recipients with enabled (reminders) |
+| mail | only when an address is given: saved into the first mailbox with MR.save_box_form (provider: Outlook for outlook.com / hotmail / live / msn domains, otherwise Gmail — also Google Workspace — unless the address is unchanged; password spaces removed, kept if empty, never stored for Outlook, which finishes with Sign in with Microsoft on /mail), mail_settings enabled (automatic reading); recipients validated by notify.EMAIL_RE go to notify_settings recipients with enabled (reminders) |
 | features | features_off from the ticked keys, closed over features.REQUIRES |
 | accounts | nothing (Add links open accounts?tab=<kind>&add=<kind> in a new tab) |
 | backup | backup.target_dir check, then backup.save_settings(dir, every, keep=10) in users.json; an unusable folder flashes a warning and stays on the step |
@@ -778,13 +799,14 @@ install_program(program, data, import_from, packages, log, grant_user)
 |---|---|
 | test_core.py | setup and weak passwords, recovery key, books, classification, links, director, reimbursements, people loans, asset types, broker views, Viewing filter, reports, search, encryption at rest, second user, recovery, restart, display name, open-redirect check |
 | test_demat.py | CAS reading per demat, commit, reconciliation statuses, portfolio statement quantities, old CAS broker migration |
-| test_imap_client.py | mailreader.Imap against a scripted IMAP server (capabilities, UIDVALIDITY, SEARCH SINCE, header parsing, BODY.PEEK, labels) |
+| test_imap_client.py | mailreader.Imap against a scripted IMAP server (capabilities, UIDVALIDITY, SEARCH SINCE, header parsing, BODY.PEEK, labels; AUTHENTICATE XOAUTH2 instead of LOGIN) |
 | test_mail_inbox.py | allowlist, rejected look-alikes, sealed alerts, forwarded mail to review, auto-import of CAS and statements, duplicates, allow sender, review, poll not counted as activity, auth_check units |
 | test_1_6.py | help chapters (endpoints, links, PDF, design pages if DESIGN.md exists), refunds, reminder outbox, timing, no double send, sent-log privacy, Home redirect to /welcome, features, launcher pieces |
 | test_1_7.py | separate data folder via FINANCEHUB_DATA (nothing written to the program folder); escrow fields; admin reset, must_change and /account/password; own rename; a member cannot reset; rename_other; promotion grants escrow_key; backup save, now and download (no plaintext in the file), restore with the same key, safety copy, still logged in, damaged file refused, run_due due and not again; restore_fresh on a new Vault, refused a second time and with a wrong password; scrub; support page, download, mailto and send with a fake SMTP; 500 page with error reference; the setup wizard's five steps, what they write, shown once |
+| test_1_8.py | oauth_ms against a fake Microsoft endpoint (device code, pending → ok, cached and rotated tokens keyed by the token presented, no token → no access, forget(), invalid_grant, consumers fallback, friendly texts, XOAUTH2 string, id_token account); Gmail app-password advice; migration of the 1.7 mailbox (no password left in mail_settings); adding an Outlook mailbox and signing in through the routes; check_mail over two mailboxes with Gmail- and Microsoft-style Authentication-Results, mailbox_id tagging, a mail in both read once, rotated refresh token saved; pause; SMTP with password vs XOAUTH2 on 587 after send_from; sign-out, edit keeps the password, remove moves send_from; signed in as another account → warning; empty label leaves Outlook mails untouched; custom port kept; switching away from Outlook forgets the sign-in; wizard defaults unknown domains to Gmail and stores no Outlook password |
 | test_installer.py | make_release (--skip-tests --allow-findings) builds the Setup zip; silent install with --no-packages into temporary program and data folders, bringing over an old portable Vault; financehub.json; a subprocess in the installed folder finds its data and logs in; upgrade removes a stale file and keeps data; import into a folder with users is refused; a tampered release is refused; uninstall keeps data; the wizard's page flow through tests/_tkstub |
 
-To add a test: create tests/test_<topic>.py; call `SP = fresh('<topic>')` before importing app; drive A.app.test_client() after posting /setup and /login, or use A.app.test_request_context() with A.get_db(); fake external services by replacing mailreader.Imap, passing a factory to check_mail or notify.run_due, or setting app.config HUB_SMTP_FACTORY; assert, then run tests/run_all.py.
+To add a test: create tests/test_<topic>.py; call `SP = fresh('<topic>')` before importing app; drive A.app.test_client() after posting /setup and /login, or use A.app.test_request_context() with A.get_db(); fake external services by replacing mailreader.Imap or oauth_ms._post, passing a factory to check_mail or notify.run_due, or setting app.config HUB_SMTP_FACTORY; assert, then run tests/run_all.py.
 
 ## 16. Extending the Hub
 
@@ -825,7 +847,7 @@ Create docs/user/NN-slug.md with "# Title", endpoints and icon comments, the Mar
 
 - Alert mails into provisional entries: attachment-less mails are already kept (status alert, sealed text) for a reader that will create provisional transactions, later matched with statement rows.
 - Exchange holidays for T+1: settles_by skips only weekends, so trades before a holiday look in transit a day too long.
-- OAuth instead of Gmail app passwords, for narrower, separately revocable access.
+- Google sign-in (OAuth) for Gmail too, instead of app passwords: Outlook uses OAuth since 1.8 (8.5); Gmail's IMAP scope needs a Google-verified app, so app passwords stay for now.
 - More bank, card and broker readers as samples arrive.
 - A compiled installer: today the .exe (Inno Setup) is optional and still needs Python; bundling a Python runtime would remove that step.
 - DEK rotation (re-encrypt with a new key) so that old backups and an escrow copy stop opening new data after a compromise.
@@ -840,6 +862,7 @@ Create docs/user/NN-slug.md with "# Title", endpoints and icon comments, the Mar
 - The tkinter wizard is tested only with the stub (15); UAC elevation, icacls, registry entries, shortcuts and pip are not covered by automated tests and must be checked by hand on Windows.
 - Automatic backups need the Hub running (Start with Windows); uploading to the cloud depends on the sync app.
 - Key escrow: administrators can read every user's data (13).
+- Outlook needs the user's own Microsoft app registration (no client ID ships with the Hub); mailboxes are read one after another in the request that checks mail.
 
 ### 17.3 Review findings (1.6)
 
@@ -898,3 +921,17 @@ Found while writing the 1.7 manuals and fixed before release:
 | error page / Users card wording | "data folder" |
 | tests/_common copied financehub.json | excluded |
 
+
+### 17.5 Review findings (1.8)
+
+Found by an independent review of the 1.8 change and fixed before release:
+
+| Finding | Fix |
+|---|---|
+| handled mails were labelled 'FinanceHub' even with an empty label, so Outlook / other servers got a new folder and a copy of every mail | the mailbox's own label is used; empty leaves mails untouched |
+| the wizard made unknown domains an 'other' mailbox without a server (a 1.7 regression for Google Workspace); it stored a password for Outlook addresses | unknown domains default to Gmail; Outlook gets no password; the wizard goes through save_box_form; configured() needs a server |
+| switching a mailbox away from Outlook kept its refresh token | cleared |
+| a typed IMAP port was replaced by the provider default | kept |
+| the access-token cache was keyed by client ID + address and preferred over the stored token, so another Hub user adding the same address could use it | TOKENS is keyed only by the refresh token presented; forget() on lock |
+| mails read before 1.8 could be credited to whichever mailbox was checked first | the migration assigns them to the migrated mailbox |
+| signing in with a different Microsoft account than the mailbox address failed later with a misleading message | the id_token's account is compared and the page warns |

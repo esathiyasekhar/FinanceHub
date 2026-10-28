@@ -22,7 +22,10 @@ def hdr(m):
     return m.split(b'\r\n\r\n')[0] + b'\r\n\r\n'
 def serve(sock):
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(f'{_d}/c.pem', f'{_d}/k.pem')
-    conn, _ = sock.accept(); s = ctx.wrap_socket(conn, server_side=True); f = s.makefile('rwb')
+    for _conn in range(2):
+        conn, _ = sock.accept(); s = ctx.wrap_socket(conn, server_side=True); f = s.makefile('rwb')
+        session(f)
+def session(f):
     w = lambda b: (f.write(b), f.flush())
     w(b'* OK Gimap ready\r\n')
     while True:
@@ -32,6 +35,11 @@ def serve(sock):
         tag, cmd = line.split(b' ', 1); c = cmd.strip().upper()
         if c.startswith(b'CAPABILITY'):
             w(b'* CAPABILITY IMAP4rev1 X-GM-EXT-1 UIDPLUS\r\n' + tag + b' OK done\r\n')
+        elif c.startswith(b'AUTHENTICATE XOAUTH2'):          # 1.8: Outlook
+            w(b'+ \r\n')
+            import base64
+            SEEN.append('XOAUTH2 ' + base64.b64decode(f.readline().strip()).decode().replace('\x01', '|'))
+            w(tag + b' OK AUTHENTICATE completed.\r\n')
         elif c.startswith(b'LOGIN'):
             w(tag + b' OK user authenticated\r\n')
         elif c.startswith(b'SELECT'):
@@ -69,3 +77,8 @@ for s in SEEN: print('  C:', s)
 assert uv == '9876' and uids == [41, 42] and set(h) == {41, 42} and h[41][1] == len(MSG[41]) and raw == MSG[41]
 assert any('SINCE 01-Sep-2026' in s for s in SEEN) and any('BODY.PEEK[]' in s for s in SEEN) and any('+X-GM-LABELS ("FinanceHub")' in s for s in SEEN)
 print('IMAP client OK')
+SEEN.clear()
+cli = M.Imap('127.0.0.1', port, 'hub@outlook.com', None, oauth_token='AT-synthetic')
+assert cli.select('INBOX') == '9876'; cli.close()
+assert 'XOAUTH2 user=hub@outlook.com|auth=Bearer AT-synthetic||' in SEEN and not any(x.split(' ', 1)[1].upper().startswith('LOGIN') for x in SEEN if ' ' in x), SEEN
+print('IMAP XOAUTH2 OK')

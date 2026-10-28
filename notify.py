@@ -68,11 +68,24 @@ def recipients(s):
 
 
 def smtp_for(mail_s, s):
+    import mailreader as MR
     host = (s.get('smtp_host') or '').strip()
+    port = int(s.get('smtp_port') or 465)
+    if MR.provider(mail_s) == 'outlook':                     # 1.8: Outlook — STARTTLS on 587 with a Microsoft sign-in
+        import oauth_ms
+        return {'host': host if host and 'gmail' not in host else oauth_ms.SMTP_HOST,
+                'port': port if host and 'gmail' not in host and port != 465 else oauth_ms.SMTP_PORT,
+                'user': mail_s.get('user', ''), 'password': '',
+                'oauth': {'client_id': mail_s.get('ms_client_id', ''), 'tenant': mail_s.get('ms_tenant') or 'common',
+                          'refresh': mail_s.get('oauth_refresh', '')}}
     if not host:
         ih = (mail_s.get('host') or '').lower()
         host = 'smtp.gmail.com' if 'gmail' in ih or 'google' in ih else (ih.replace('imap.', 'smtp.', 1) if ih.startswith('imap.') else '')
-    return {'host': host, 'port': int(s.get('smtp_port') or 465), 'user': mail_s.get('user', ''), 'password': mail_s.get('password', '')}
+    return {'host': host, 'port': port, 'user': mail_s.get('user', ''), 'password': mail_s.get('password', '')}
+
+
+def smtp_ready(smtp):
+    return bool(smtp.get('host') and smtp.get('user') and (smtp.get('password') or (smtp.get('oauth') or {}).get('refresh')))
 
 
 def _hm(text, default):
@@ -234,7 +247,7 @@ def build_outbox(con, now=None):
     ms = MR.settings(con) if con.execute("SELECT 1 FROM sqlite_master WHERE name='mail_settings'").fetchone() else {}
     to = recipients(s)
     smtp = smtp_for(ms, s)
-    if s['enabled'] != '1' or not to or not smtp['host'] or not smtp['user'] or not smtp['password']:
+    if s['enabled'] != '1' or not to or not smtp_ready(smtp):
         return None
     amounts = s['amounts'] == '1'
     today = now.date()
@@ -368,14 +381,17 @@ def _mark_sent(data_dir, stem, key, kind, late=False):
 
 
 # ── sending ─────────────────────────────────────────────────────────────────
-def send_mail(smtp, to, subject, html, text, factory=None):
+def send_mail(smtp, to, subject, html, text, factory=None, reply_to=None):
     msg = EmailMessage()
     msg['From'] = formataddr(('Finance Hub', smtp['user']))
     msg['To'] = ', '.join(to)
+    if reply_to:
+        msg['Reply-To'] = reply_to
     msg['Subject'] = subject
     msg['Message-ID'] = make_msgid(domain='financehub.local')
     msg.set_content(text)
-    msg.add_alternative(html, subtype='html')
+    if html:
+        msg.add_alternative(html, subtype='html')
     ctx = ssl.create_default_context()
     if factory:
         cli = factory(smtp)
@@ -385,7 +401,15 @@ def send_mail(smtp, to, subject, html, text, factory=None):
         cli = smtplib.SMTP(smtp['host'], int(smtp['port']), timeout=30)
         cli.starttls(context=ctx)
     try:
-        cli.login(smtp['user'], smtp['password'])
+        if smtp.get('oauth'):                            # 1.8: Outlook — SASL XOAUTH2 with a fresh Microsoft access token
+            import oauth_ms
+            o = smtp['oauth']
+            token, newest = oauth_ms.access_token(o['client_id'], o.get('tenant') or 'common', o.get('refresh'), smtp['user'])
+            o['refresh'] = newest
+            cli.ehlo()
+            cli.auth('XOAUTH2', lambda challenge=None: oauth_ms.xoauth2(smtp['user'], token))
+        else:
+            cli.login(smtp['user'], smtp['password'])
         cli.send_message(msg)
     finally:
         try:
@@ -525,7 +549,7 @@ def register(app, get_db, vault):
         pv = next((m for m in upcoming if m['key'] == preview), None) if preview else None
         if preview == 'weekly-now':
             pv = dict(zip(('subject', 'html', 'text'), weekly_now(con, s['amounts'] == '1')))
-        return render_template('reminders.html', s=s, to=recipients(s), smtp=smtp_for(ms, s), mail_ready=bool(ms.get('user') and ms.get('password')),
+        return render_template('reminders.html', s=s, to=recipients(s), smtp=smtp_for(ms, s), mail_ready=MR.configured(ms),
                                upcoming=upcoming, history=history, pv=pv, DAYS=DAYS, dpapi=dpapi_available(),
                                launcher=bool(app.config.get('HUB_LAUNCHER')))
 
@@ -554,7 +578,7 @@ def register(app, get_db, vault):
         s, ms = settings(con), MR.settings(con)
         to = recipients(s)
         smtp = smtp_for(ms, s)
-        if not to or not smtp['user'] or not smtp['password'] or not smtp['host']:
+        if not to or not smtp_ready(smtp):
             flash('Add at least one address, and set up the Hub mailbox (Settings › Mail inbox) — mails are sent from it.', 'warning')
             return redirect(url_for('reminders_page'))
         subj, html, text = weekly_now(con, s['amounts'] == '1')

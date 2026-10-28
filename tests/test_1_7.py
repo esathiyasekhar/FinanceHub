@@ -154,7 +154,8 @@ s = S.scrub('Failed for 4000123412341234 on 12,34,567.50 at C:\\Users\\someone\\
 assert '4000123412341234' not in s and '12,34,567' not in s and 'someone' not in s and 'me@mail' not in s and 'ABCDE1234F' not in s, s
 c.post('/login', data={'username': 'owner', 'password': PW})
 h = c.get('/support?summary=Test+problem&what=Something+broke').get_data(as_text=True)
-assert 'Finance Hub 1.7' in h and 'amirthamilserve@gmail.com' in h
+from hub_version import VERSION
+assert f'Finance Hub {VERSION}' in h and 'amirthamilserve@gmail.com' in h
 r = c.post('/support/send', data={'summary': 'Test problem', 'what': 'x', 'action': 'download', 'diag': '1', 'logs': '1'})
 assert r.status_code == 200 and b'Summary: Test problem' in r.data and b'Technical details' in r.data
 r = c.post('/support/send', data={'summary': 'Test problem', 'action': 'mailto'})
@@ -221,7 +222,9 @@ with A.app.test_request_context():
     hs = dict(con.execute('SELECT key, value FROM hub_settings').fetchall())
     assert hs['display_name'] == 'Member Two' and hs['onboarding'] == 'done' and 'investments' in hs['features_off']
     assert con.execute("SELECT 1 FROM entities WHERE name='ABC Traders Pvt Ltd' AND role='book'").fetchone()
-    assert dict(con.execute('SELECT key, value FROM mail_settings').fetchall())['password'] == 'wxyzwxyzwxyzwxyz'
+    mb = con.execute('SELECT * FROM mailboxes').fetchall()
+    assert len(mb) == 1 and mb[0]['password'] == 'wxyzwxyzwxyzwxyz' and mb[0]['send_from'] == 1
+    assert 'password' not in dict(con.execute('SELECT key, value FROM mail_settings').fetchall())
     assert 'm2@example.com' in dict(con.execute('SELECT key, value FROM notify_settings').fetchall())['recipients']
 assert B.settings_of(A.V, 'member2')['every'] == 'weekly'
 assert c.get('/').status_code == 200, 'wizard only once'

@@ -239,6 +239,11 @@ class Vault:
                     self.persist()
                 finally:
                     self.con.close()
+            try:
+                import oauth_ms                                  # 1.8: forget Microsoft access tokens and pending sign-ins
+                oauth_ms.forget(self.user)
+            except ImportError:
+                pass
             self.con, self.dek, self.user, self.nonce = None, None, None, ''
 
     def connect(self):

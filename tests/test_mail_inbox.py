@@ -60,17 +60,19 @@ class Fake:
     def close(self): pass
 M.Imap = Fake
 
-h = c.get('/mail').get_data(as_text=True); assert 'Setting up the Hub' in h
+h = c.get('/mail').get_data(as_text=True); assert 'Setting up a mailbox for the Hub' in h and 'Your first mailbox' in h
 r = c.post('/mail/settings', data={'user': 'hub@gmail.com', 'password': 'wrong', 'host': 'imap.gmail.com', 'port': '993', 'folder': 'INBOX',
      'label': 'FinanceHub', 'interval': '15', 'since_days': '60', 'senders': M.DEFAULT_SENDERS, 'forwarders': 'me@gmail.com', 'enabled': 'on', 'auto_import': 'on'},
      follow_redirects=True)
-assert 'wrong' not in r.get_data(as_text=True).split('Mailbox settings')[1][:4000] or True
+assert 'value="wrong"' not in r.get_data(as_text=True)
 r = c.post('/mail/test', follow_redirects=True); assert 'refused the address' in r.get_data(as_text=True)
 c.post('/mail/settings', data={'user': 'hub@gmail.com', 'password': 'abcd abcd abcd abcd', 'host': 'imap.gmail.com', 'port': '993', 'folder': 'INBOX',
      'label': 'FinanceHub', 'interval': '15', 'since_days': '60', 'senders': M.DEFAULT_SENDERS, 'forwarders': 'me@gmail.com', 'enabled': 'on', 'auto_import': 'on'})
 h = c.get('/mail').get_data(as_text=True)
+assert 'abcdabcd' not in h and 'hub@gmail.com' in h and 'Add a mailbox' in h
+h = c.get('/mail?box=1').get_data(as_text=True)
 assert 'abcdabcd' not in h and 'saved — leave empty to keep' in h
-r = c.post('/mail/test', follow_redirects=True); assert 'Connected to the mailbox' in r.get_data(as_text=True)
+r = c.post('/mail/test', follow_redirects=True); assert 'Connected to hub@gmail.com' in r.get_data(as_text=True)
 # patched statement reader for the CSV: pretend balances reconcile + account known → auto import
 import importer
 real_prev, real_commit = importer.preview_file, importer.commit_preview

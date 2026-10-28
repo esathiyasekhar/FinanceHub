@@ -61,10 +61,18 @@ def register(app, get_db, vault):
                                     (company, f.get('company_aliases', '').strip()[:200]))
                 elif name == 'mail':
                     if f.get('user', '').strip():
-                        con.execute("INSERT OR REPLACE INTO mail_settings (key, value) VALUES ('user', ?)", (f['user'].strip(),))
-                        if f.get('password', '').strip():
-                            con.execute("INSERT OR REPLACE INTO mail_settings (key, value) VALUES ('password', ?)",
-                                        (f['password'].strip().replace(' ', ''),))
+                        bs = MR.boxes(con)
+                        first = bs[0] if bs else None
+                        user = f['user'].strip()[:200]
+                        dom = user.lower().rsplit('@', 1)[-1]
+                        guess = ('outlook' if dom in ('outlook.com', 'hotmail.com', 'live.com', 'msn.com', 'outlook.in', 'hotmail.co.in')
+                                 else 'gmail')          # Gmail and Google Workspace addresses; others can be changed on the Mail inbox page
+                        same = first and first['user'].lower() == user.lower()
+                        prov = MR.provider(first) if same else guess
+                        form = {'user': user, 'provider': prov, 'active': '1', 'box_form': '1'}
+                        if prov != 'outlook' and f.get('password', '').strip():
+                            form['password'] = f['password']
+                        MR.save_box_form(con, first['id'] if first else None, form)
                         con.execute("INSERT OR REPLACE INTO mail_settings (key, value) VALUES ('enabled', ?)", ('1' if f.get('auto') else '0',))
                     rcpt = [x for x in re.split(r'[\s,;]+', f.get('recipients', '')) if N.EMAIL_RE.match(x.strip())]
                     if rcpt:

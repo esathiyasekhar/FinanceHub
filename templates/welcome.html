@@ -22,7 +22,8 @@
 {% elif step == 'mail' %}
   <h5 class="mb-1">Mail <span class="muted" style="font-size:.8rem">(optional)</span></h5>
   <p class="muted" style="font-size:.84rem">A mailbox only for the Hub (for example a new Gmail address with an <b>app password</b>) lets the Hub read statements
-    that arrive by mail and send you reminders. You can do this later on <b>Settings › Mail inbox</b> — its page explains each step.</p>
+    that arrive by mail and send you reminders. You can do this later on <b>Settings › Mail inbox</b> — its page explains each step, and you can add more mailboxes there.
+    <b>Outlook / Hotmail</b> addresses need “Sign in with Microsoft” on that page (no password here).</p>
   <div class="row g-2">
     <div class="col-md-6"><label class="form-label">Hub mailbox address</label><input name="user" type="email" class="form-control form-control-sm" value="{{ ms.user }}" placeholder="hub.statements@gmail.com"></div>
     <div class="col-md-6"><label class="form-label">App password</label><input name="password" type="password" class="form-control form-control-sm" autocomplete="new-password"

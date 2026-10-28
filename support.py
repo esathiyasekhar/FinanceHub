@@ -77,7 +77,7 @@ def diagnostics(con, vault, app):
     try:
         import mailreader as MR
         ms = MR.settings(con)
-        lines.append(f"Mail inbox: {'set up' if ms.get('user') and ms.get('password') else 'not set up'}"
+        lines.append(f"Mail inbox: {'set up (' + MR.provider(ms) + ')' if MR.configured(ms) else 'not set up'}"
                      f"{', automatic' if ms.get('enabled') == '1' else ''}")
     except Exception:  # noqa: BLE001
         pass
@@ -121,7 +121,7 @@ def register(app, get_db, vault):
         con, f, text, contact = _build()
         import mailreader as MR
         ms = MR.settings(con)
-        return render_template('support.html', text=text, f=f, support=SUPPORT_EMAIL, mail_ready=bool(ms.get('user') and ms.get('password')),
+        return render_template('support.html', text=text, f=f, support=SUPPORT_EMAIL, mail_ready=MR.configured(ms),
                                default_contact=ms.get('user', ''), ref=f.get('ref', ''))
 
     def send():
@@ -140,36 +140,11 @@ def register(app, get_db, vault):
         import notify
         ms = MR.settings(con)
         smtp = notify.smtp_for(ms, notify.settings(con))
-        if not (smtp['host'] and smtp['user'] and smtp['password']):
+        if not notify.smtp_ready(smtp):
             flash('The Hub mailbox is not set up — use “Open in my mail program” or “Save as a file” instead.', 'warning')
             return page()
         try:
-            from email.message import EmailMessage
-            import smtplib
-            import ssl
-            msg = EmailMessage()
-            msg['From'] = f"Finance Hub <{smtp['user']}>"
-            msg['To'] = SUPPORT_EMAIL
-            if contact:
-                msg['Reply-To'] = contact
-            msg['Subject'] = subject
-            msg.set_content(text)
-            factory = app.config.get('HUB_SMTP_FACTORY')
-            if factory:
-                cli = factory(smtp)
-            elif int(smtp['port']) == 465:
-                cli = smtplib.SMTP_SSL(smtp['host'], 465, context=ssl.create_default_context(), timeout=30)
-            else:
-                cli = smtplib.SMTP(smtp['host'], int(smtp['port']), timeout=30)
-                cli.starttls(context=ssl.create_default_context())
-            try:
-                cli.login(smtp['user'], smtp['password'])
-                cli.send_message(msg)
-            finally:
-                try:
-                    cli.quit()
-                except Exception:  # noqa: BLE001
-                    pass
+            notify.send_mail(smtp, [SUPPORT_EMAIL], subject, None, text, app.config.get('HUB_SMTP_FACTORY'), reply_to=contact or None)
             app.logger.info('Problem report sent to support')
             flash(f'Thank you — your report was sent to {SUPPORT_EMAIL}.', 'success')
             return redirect(url_for('help_page'))

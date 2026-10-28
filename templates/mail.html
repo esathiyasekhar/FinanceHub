@@ -17,50 +17,115 @@
   {% if s.last_check %}<div class="muted mt-2" style="font-size:.76rem"><i class="bi bi-clock-history me-1"></i>Last check {{ s.last_check|replace('T', ' ') }} — {{ s.last_result }}</div>{% endif %}
 </div>
 
+{% macro box_form(b, kind) %}
+<form method="post" action="{{ url_for('mail_box_save') }}" class="row g-2 mt-1" autocomplete="off">
+  <input type="hidden" name="box_form" value="1">{% if b %}<input type="hidden" name="box_id" value="{{ b.id }}">{% endif %}
+  <div class="col-12 d-flex flex-wrap gap-3">{% for k, v in PROVIDERS.items() %}
+    <div class="form-check"><input class="form-check-input" type="radio" name="provider" value="{{ k }}" id="pv-{{ b.id if b else 'n' }}-{{ k }}" {{ 'checked' if kind == k }}
+      onchange="location.href='{{ url_for('mail_page', box=(b.id if b else 'new')) }}&kind={{ k }}'">
+      <label class="form-check-label" for="pv-{{ b.id if b else 'n' }}-{{ k }}" style="font-size:.84rem">{{ v[0] }}</label></div>{% endfor %}</div>
+  <div class="col-md-4"><label class="form-label">Mailbox address</label><input name="user" type="email" class="form-control form-control-sm" value="{{ b.user if b else '' }}" required
+    placeholder="{{ 'hub.statements@outlook.com' if kind == 'outlook' else 'hub.statements@gmail.com' }}"></div>
+  <div class="col-md-3"><label class="form-label">Name (optional)</label><input name="name" class="form-control form-control-sm" value="{{ b.name if b else '' }}" placeholder="e.g. Personal, Company"></div>
+  {% if kind == 'outlook' %}
+  <div class="col-md-5"><label class="form-label">Application (client) ID</label><input name="ms_client_id" class="form-control form-control-sm" value="{{ b.ms_client_id if b else '' }}"
+    placeholder="00000000-0000-0000-0000-000000000000" style="font-family:monospace" required></div>
+  <input type="hidden" name="ms_tenant" value="{{ b.ms_tenant if b and b.ms_tenant else 'common' }}">
+  {% else %}
+  <div class="col-md-5"><label class="form-label">{{ 'App password' if kind == 'gmail' else 'Password' }}</label><input name="password" type="password" class="form-control form-control-sm" autocomplete="new-password"
+    placeholder="{{ 'saved — leave empty to keep' if b and b.has_password else ('16-letter app password (not your Gmail password)' if kind == 'gmail' else 'mailbox password') }}"></div>
+  {% endif %}
+  <details class="col-12"><summary class="muted" style="font-size:.76rem;cursor:pointer">Server, folder and label</summary><div class="row g-2 mt-1">
+    <div class="col-md-4"><label class="form-label">IMAP server</label><input name="host" class="form-control form-control-sm" value="{{ b.host if b and kind == b.kind else PROVIDERS[kind][1] }}"></div>
+    <div class="col-md-2"><label class="form-label">Port</label><input name="port" class="form-control form-control-sm" value="{{ b.port if b and kind == b.kind else PROVIDERS[kind][2] }}"></div>
+    <div class="col-md-3"><label class="form-label">Folder</label><input name="folder" class="form-control form-control-sm" value="{{ b.folder if b else 'INBOX' }}"></div>
+    <div class="col-md-3"><label class="form-label">Label for handled mails</label><input name="label" class="form-control form-control-sm" value="{{ b.label if b and kind == b.kind else PROVIDERS[kind][3] }}" placeholder="empty = leave as they are"></div>
+  </div></details>
+  <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
+    <div class="form-check me-2"><input class="form-check-input" type="checkbox" name="active" id="act-{{ b.id if b else 'n' }}" {{ 'checked' if not b or b.active }}>
+      <label class="form-check-label" for="act-{{ b.id if b else 'n' }}" style="font-size:.82rem">Read this mailbox</label></div>
+    <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>{{ 'Save' if b else 'Add mailbox' }}</button>
+    <a class="btn btn-sm btn-link muted" href="{{ url_for('mail_page') }}">Cancel</a>
+  </div>
+</form>
+{% endmacro %}
+
 {% if not configured %}
 <div class="hub-card mb-3">
-  <h6><i class="bi bi-signpost-split me-2 text-primary"></i>Setting up the Hub's mailbox (once)</h6>
-  <ol class="mb-0" style="font-size:.82rem;line-height:1.6">
-    <li>Create a <b>new Gmail address only for the Hub</b> — don't use your main mailbox.</li>
-    <li>On that account turn on <b>2-Step Verification</b>, then create an <b>app password</b> (Google Account › Security › App passwords).
-      Gmail shows it once as 16 letters — paste it below. If Gmail asks, make sure IMAP is on (Gmail settings › Forwarding and POP/IMAP).</li>
-    <li>In <b>your own</b> mailbox, add the Hub's address as a forwarding address (Gmail sends a code to the Hub's mailbox — open it there),
-      then create a filter that forwards only statement mails, for example:<br>
-      <code style="font-size:.74rem;word-break:break-all">from:({{ s.senders.split()|join(' OR ') }}) has:attachment</code></li>
-    <li>Your own address goes into <i>“My forwarding addresses”</i> below only if you will also forward mails by hand.</li>
-  </ol>
+  <h6><i class="bi bi-signpost-split me-2 text-primary"></i>Setting up a mailbox for the Hub</h6>
+  <div class="row g-3" style="font-size:.8rem;line-height:1.55">
+    <div class="col-lg-6"><b>Gmail</b>
+      <ol class="mb-0 ps-3">
+        <li>Best: a <b>new Gmail address only for the Hub</b>.</li>
+        <li>Turn on <b>2-Step Verification</b> for it, then create an <b>app password</b> at <b>myaccount.google.com/apppasswords</b> — your normal Gmail
+          password does not work here.</li>
+        <li>Forward statement mails to it from your own mailbox with a filter, e.g.
+          <code style="font-size:.72rem;word-break:break-all">from:({{ s.senders.split()[:6]|join(' OR ') }} …) has:attachment</code></li>
+      </ol></div>
+    <div class="col-lg-6"><b>Outlook.com / Hotmail / Microsoft 365</b>
+      <ol class="mb-0 ps-3">
+        <li>Outlook no longer accepts passwords from apps — the Hub <b>signs in with Microsoft</b>. It needs an <b>application (client) ID</b>, made once, free:</li>
+        <li><b>portal.azure.com</b> › <b>App registrations</b> › <b>New registration</b> — name <code>Finance Hub</code>, account types
+          <b>Accounts in any organizational directory and personal Microsoft accounts</b>, no redirect › <b>Register</b>. (With only a personal
+          Outlook account Microsoft first asks you to create a free Azure account — it may ask for a card to verify you; registering costs nothing.)</li>
+        <li>Copy the <b>Application (client) ID</b>; then <b>Authentication</b> › <b>Allow public client flows</b> = <b>Yes</b> › <b>Save</b>.</li>
+        <li>Add the mailbox below with that ID, then <b>Sign in with Microsoft</b> and type the code shown.</li>
+      </ol></div>
+  </div>
 </div>
 {% endif %}
 
-<details class="hub-card mb-3" {{ 'open' if not configured }}>
-  <summary style="cursor:pointer;font-weight:700;font-size:.9rem"><i class="bi bi-gear me-2 text-primary"></i>Mailbox settings
-    {% if configured %}<span class="chip tone-{{ 'green' if s.enabled == '1' else 'slate' }} ms-2">{{ s.user }} · {{ 'automatic' if s.enabled == '1' else 'only when you press Check now' }}</span>{% endif %}</summary>
+<div class="hub-card mb-3">
+  <div class="card-head"><h6><i class="bi bi-inboxes me-2 text-primary"></i>Mailboxes the Hub reads</h6>
+    {% if boxes and not adding %}<a class="btn btn-sm btn-soft ms-auto" href="{{ url_for('mail_page', box='new') }}"><i class="bi bi-plus-lg me-1"></i>Add a mailbox</a>{% endif %}</div>
+  {% for b in boxes %}
+    <div class="list-row flex-wrap gap-2" style="font-size:.84rem">
+      <i class="bi {{ 'bi-microsoft' if b.kind == 'outlook' else ('bi-google' if b.kind == 'gmail' else 'bi-envelope') }} text-primary"></i>
+      <div class="min-w-0"><b>{{ b.name or b.user }}</b> <span class="muted">{{ b.user }}</span>
+        {% if b.send_from and many %}<span class="chip tone-indigo ms-1">sends reminders</span>{% endif %}
+        {% if not b.active %}<span class="chip tone-slate ms-1">paused</span>{% endif %}
+        <div class="muted" style="font-size:.72rem">
+          {% if b.kind == 'outlook' %}{{ 'Signed in with Microsoft ✓' if b.signed_in else 'Not signed in yet' }} · {% endif %}
+          {% if b.last_check %}last check {{ b.last_check|replace('T', ' ') }} — {{ b.last_result }}{% else %}not checked yet{% endif %}</div></div>
+      <div class="ms-auto d-flex flex-wrap gap-1">
+        {% if b.kind == 'outlook' %}<button type="button" class="btn btn-sm btn-primary ms-btn" data-box="{{ b.id }}" {{ 'disabled' if not (b.ms_client_id and b.user) }}>
+          <i class="bi bi-microsoft me-1"></i>{{ 'Sign in again' if b.signed_in else 'Sign in with Microsoft' }}</button>{% endif %}
+        {% if b.ready %}<form method="post" action="{{ url_for('mail_box_test', mid=b.id) }}"><button class="btn btn-sm btn-soft" title="Test connection"><i class="bi bi-plug"></i></button></form>{% endif %}
+        <a class="btn btn-sm btn-soft" href="{{ url_for('mail_page', box=b.id) }}" title="Edit"><i class="bi bi-pencil"></i></a>
+        <form method="post" action="{{ url_for('mail_box_action', mid=b.id) }}" class="d-flex gap-1">
+          {% if many and not b.send_from %}<button class="btn btn-sm btn-soft" name="action" value="send_from" title="Send reminders and problem reports from this mailbox"><i class="bi bi-send"></i></button>{% endif %}
+          <button class="btn btn-sm btn-soft" name="action" value="toggle" title="{{ 'Pause' if b.active else 'Read again' }}"><i class="bi bi-{{ 'pause' if b.active else 'play' }}"></i></button>
+          {% if b.kind == 'outlook' and b.signed_in %}<button class="btn btn-sm btn-soft" name="action" value="signout" title="Sign out of Microsoft"><i class="bi bi-box-arrow-right"></i></button>{% endif %}
+          <button class="btn btn-sm btn-soft text-danger" name="action" value="remove" title="Remove" onclick="return confirm('Remove this mailbox from the Hub? Mails already read stay.')"><i class="bi bi-trash"></i></button>
+        </form>
+      </div>
+      <div class="w-100 d-none ms-box" id="msBox-{{ b.id }}"></div>
+      {% if editing and editing.id == b.id %}<div class="w-100">{{ box_form(b, request.args.get('kind') if request.args.get('kind') in PROVIDERS else b.kind) }}</div>{% endif %}
+    </div>
+  {% endfor %}
+  {% if adding %}<div class="mt-2"><div class="fw-semibold" style="font-size:.84rem">{{ 'Add a mailbox' if boxes else 'Your first mailbox' }}</div>{{ box_form(None, new_kind) }}</div>{% endif %}
+  <div class="muted mt-2" style="font-size:.72rem"><i class="bi bi-shield-lock me-1"></i>Passwords and Microsoft sign-ins are stored only inside your encrypted data and never shown again.
+    A mail that reaches more than one of these mailboxes is read only once.</div>
+</div>
+
+<details class="hub-card mb-3">
+  <summary style="cursor:pointer;font-weight:700;font-size:.9rem"><i class="bi bi-sliders me-2 text-primary"></i>Reading rules (all mailboxes)
+    <span class="chip tone-{{ 'green' if s.enabled == '1' else 'slate' }} ms-2">{{ 'automatic every ' ~ s.interval ~ ' min' if s.enabled == '1' else 'only when you press Check now' }}</span></summary>
   <form method="post" action="{{ url_for('mail_settings_save') }}" class="row g-2 mt-2" autocomplete="off">
-    <div class="col-md-4"><label class="form-label">Hub mailbox address</label><input name="user" type="email" class="form-control form-control-sm" value="{{ s.user }}" placeholder="hub.statements@gmail.com" autocomplete="off"></div>
-    <div class="col-md-4"><label class="form-label">App password</label><input name="password" type="password" class="form-control form-control-sm" autocomplete="new-password"
-      placeholder="{{ 'saved — leave empty to keep' if has_password else '16-letter app password' }}"></div>
-    <div class="col-md-3"><label class="form-label">IMAP server</label><input name="host" class="form-control form-control-sm" value="{{ s.host }}"></div>
-    <div class="col-md-1"><label class="form-label">Port</label><input name="port" class="form-control form-control-sm" value="{{ s.port }}" inputmode="numeric"></div>
-    <div class="col-md-3"><label class="form-label">Folder</label><input name="folder" class="form-control form-control-sm" value="{{ s.folder }}"></div>
-    <div class="col-md-3"><label class="form-label">Label for handled mails</label><input name="label" class="form-control form-control-sm" value="{{ s.label }}"></div>
     <div class="col-md-3"><label class="form-label">Check every (minutes)</label><input name="interval" type="number" min="5" max="1440" class="form-control form-control-sm" value="{{ s.interval }}"></div>
     <div class="col-md-3"><label class="form-label">First check looks back (days)</label><input name="since_days" type="number" min="1" max="400" class="form-control form-control-sm" value="{{ s.since_days }}"></div>
+    <div class="col-md-6"><div class="form-check mt-4"><input class="form-check-input" type="checkbox" name="enabled" id="mEn" {{ 'checked' if s.enabled == '1' }}>
+        <label class="form-check-label" for="mEn" style="font-size:.82rem">Check automatically while the Hub is open in your browser</label></div>
+      <div class="form-check"><input class="form-check-input" type="checkbox" name="auto_import" id="mAuto" {{ 'checked' if s.auto_import == '1' }}>
+        <label class="form-check-label" for="mAuto" style="font-size:.82rem">Import automatically when every check passes</label></div></div>
     <div class="col-md-6"><label class="form-label">Senders to read (domains, one per line)</label>
       <textarea name="senders" rows="6" class="form-control form-control-sm" style="font-family:monospace;font-size:.76rem">{{ s.senders }}</textarea>
       <div class="muted" style="font-size:.7rem">A domain also covers its sub-domains (bank.in covers every regulated bank's .bank.in address).</div></div>
     <div class="col-md-6"><label class="form-label">My forwarding addresses (optional)</label>
       <textarea name="forwarders" rows="3" class="form-control form-control-sm" style="font-family:monospace;font-size:.76rem" placeholder="me@gmail.com">{{ s.forwarders }}</textarea>
       <div class="muted" style="font-size:.7rem">Mails you forward by hand from these addresses are read too, but always wait for you —
-        the original sender cannot be verified after a manual forward. Filter forwarding keeps the original sender and is verified.</div>
-      <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="enabled" id="mEn" {{ 'checked' if s.enabled == '1' }}>
-        <label class="form-check-label" for="mEn" style="font-size:.82rem">Check automatically while the Hub is open in your browser</label></div>
-      <div class="form-check"><input class="form-check-input" type="checkbox" name="auto_import" id="mAuto" {{ 'checked' if s.auto_import == '1' }}>
-        <label class="form-check-label" for="mAuto" style="font-size:.82rem">Import automatically when every check passes</label></div></div>
-    <div class="col-12 d-flex flex-wrap gap-2 align-items-center">
-      <button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>Save</button>
-      {% if configured %}<button class="btn btn-sm btn-soft" formaction="{{ url_for('mail_test') }}"><i class="bi bi-plug me-1"></i>Test connection</button>{% endif %}
-      <span class="muted ms-auto" style="font-size:.72rem"><i class="bi bi-shield-lock me-1"></i>The app password is stored only inside your encrypted data and is never shown again.</span>
-    </div>
+        the original sender cannot be verified after a manual forward. Filter forwarding keeps the original sender and is verified.</div></div>
+    <div class="col-12"><button class="btn btn-sm btn-primary"><i class="bi bi-check2 me-1"></i>Save</button></div>
   </form>
 </details>
 
@@ -82,7 +147,8 @@
     <tbody>{% for it in items %}{% set stl = STATUS.get(it.status, (it.status, 'slate')) %}
       <tr>
         <td class="text-nowrap" style="font-size:.8rem">{{ it.received|short_date if it.received }}</td>
-        <td style="font-size:.78rem">{{ it.from_domain }}{% if it.via %}<div class="muted" style="font-size:.68rem">forwarded by you</div>{% endif %}</td>
+        <td style="font-size:.78rem">{{ it.from_domain }}{% if it.via %}<div class="muted" style="font-size:.68rem">forwarded by you</div>{% endif %}
+          {% if many and it.box_name %}<div class="muted" style="font-size:.68rem"><i class="bi bi-inbox"></i> {{ it.box_name }}</div>{% endif %}</td>
         <td style="font-size:.8rem;max-width:380px"><div class="text-truncate" title="{{ it.subject }}">{{ it.subject or '(no subject)' }}</div>
           {% if it.attachment %}<div class="muted text-truncate" style="font-size:.72rem"><i class="bi bi-paperclip"></i>{{ it.attachment }}
             {% if it.kind and it.kind != 'other' %} · {{ {'statement': 'statement', 'contract_note': 'contract note', 'depository': 'CDSL / NSDL statement'}.get(it.kind, it.kind) }}{% endif %}</div>{% endif %}</td>
@@ -113,6 +179,30 @@
 {% endblock %}
 {% block scripts %}
 <script>
+(function () {                                   /* 1.8: Sign in with Microsoft (device code), per mailbox */
+  const esc = t => String(t).replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
+  document.querySelectorAll('.ms-btn').forEach(btn => btn.addEventListener('click', () => {
+    const id = btn.dataset.box, box = document.getElementById('msBox-' + id);
+    const post = u => fetch(u, {method: 'POST', headers: {'Content-Type': 'application/json'}, body: '{}'}).then(r => r.json());
+    btn.disabled = true; box.classList.remove('d-none'); box.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Asking Microsoft for a code…';
+    post('/mail/box/' + id + '/ms/start').then(d => {
+      if (!d.ok) { box.innerHTML = '<span class="text-danger">' + esc(d.msg) + '</span>'; btn.disabled = false; return; }
+      box.innerHTML = '1. Open <a href="' + esc(d.verification_uri) + '" target="_blank" rel="noopener">' + esc(d.verification_uri) + '</a> &nbsp; 2. Type this code: ' +
+        '<b style="font-size:1.25rem;letter-spacing:2px;font-family:monospace">' + esc(d.user_code) + '</b> &nbsp; 3. Sign in to the Outlook account and allow access.' +
+        '<div class="muted mt-1" id="msWait-' + id + '"><span class="spinner-border spinner-border-sm me-1"></span>Waiting for you to finish signing in…</div>';
+      const until = Date.now() + d.expires_in * 1000;
+      const tick = () => {
+        if (Date.now() > until) { document.getElementById('msWait-' + id).textContent = 'The code expired — click the button again.'; btn.disabled = false; return; }
+        post('/mail/box/' + id + '/ms/poll').then(p => {
+          if (p.state === 'ok') { box.innerHTML = '<span class="text-success"><i class="bi bi-check-circle-fill me-1"></i>Signed in — saving…</span>'; setTimeout(() => location.reload(), 600); }
+          else if (p.state === 'error') { box.innerHTML = '<span class="text-danger">' + esc(p.msg) + '</span>'; btn.disabled = false; }
+          else setTimeout(tick, Math.max(3, d.interval) * 1000);
+        }).catch(() => setTimeout(tick, 5000));
+      };
+      setTimeout(tick, Math.max(3, d.interval) * 1000);
+    }).catch(() => { box.innerHTML = '<span class="text-danger">Could not reach the Hub.</span>'; btn.disabled = false; });
+  }));
+})();
 function showAlert(id, btn) {
   const row = document.getElementById('al-' + id);
   if (!row.classList.contains('d-none')) { row.classList.add('d-none'); return; }

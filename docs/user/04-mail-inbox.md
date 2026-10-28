@@ -2,7 +2,7 @@
 <!-- endpoints: mail_page -->
 <!-- icon: bi-envelope -->
 
-Give the Hub its own Gmail address and let your bank, card and broker statements arrive there. The Hub reads them with your saved passwords, adds the ones that pass every check, and keeps the rest waiting for you.
+Give the Hub its own mailbox — Gmail, Outlook.com / Hotmail, or another one — and let your bank, card and broker statements arrive there. The Hub can read more than one mailbox. The Hub reads them with your saved passwords, adds the ones that pass every check, and keeps the rest waiting for you.
 
 ## How it works
 
@@ -16,7 +16,7 @@ It reads bank and card statements, broker contract notes and CDSL / NSDL stateme
 
 ## Setting up the Hub's mailbox
 
-You do this once. Open **Settings › Mail inbox**.
+You do this once. Open **Settings › Mail inbox**. The steps below are for Gmail; for Outlook.com or Hotmail see [Outlook mailboxes](help:mail-inbox#outlookcom-hotmail-and-microsoft-365-mailboxes).
 
 ### 1. Create a Gmail address only for the Hub
 
@@ -33,24 +33,27 @@ Make sure IMAP is on: **Gmail settings › Forwarding and POP/IMAP**.
 
 > **Important:** The app password lets a program read this one mailbox. Never use your normal Gmail password here, and never give the app password to anyone else.
 
-### 3. Enter the details in the Hub
+### 3. Add the mailbox in the Hub
 
-Under **Mailbox settings**:
+On **Settings › Mail inbox**, under **Mailboxes the Hub reads** (for the first mailbox the form is already open; later use **Add a mailbox**):
 
-1. **Hub mailbox address**: the new Gmail address.
-2. **App password**: paste the 16 letters. Spaces don't matter.
-3. Leave **IMAP server** (`imap.gmail.com`), **Port** (993) and **Folder** (INBOX) as they are.
-4. Tick **Check automatically while the Hub is open**.
-5. Leave **Import automatically when every check passes** ticked if you want statements added without asking.
-6. Click **Save**, then **Test connection**. You should see "Connected to the mailbox".
+1. Choose **Gmail**.
+2. **Mailbox address**: the new Gmail address. **Name** is optional, for example "Personal".
+3. **App password**: paste the 16 letters. Spaces don't matter.
+4. Leave **Server, folder and label** as they are (`imap.gmail.com`, port 993, folder INBOX).
+5. Click **Add mailbox**, then the plug button (**Test connection**). You should see "Connected to" and the address.
 
-Other settings you can change:
+Then open **Reading rules (all mailboxes)**:
+
+1. Tick **Check automatically while the Hub is open**.
+2. Leave **Import automatically when every check passes** ticked if you want statements added without asking.
+3. Click **Save**.
 
 | Setting | What it means |
 |---|---|
-| **Label for handled mails** | The Gmail label the Hub puts on mails it has handled. Default: FinanceHub. |
+| **Label for handled mails** (per mailbox) | The Gmail label the Hub puts on mails it has handled. Default: FinanceHub. Leave it empty for a mailbox without labels. |
 | **Check every (minutes)** | How often the Hub looks for new mail. 5 to 1440; default 15. |
-| **First check looks back (days)** | How far back the very first check reads. Default 60 days. |
+| **First check looks back (days)** | How far back the very first check of a mailbox reads. Default 60 days. |
 
 ### 4. Forward statement mails from your own mailbox
 
@@ -58,6 +61,60 @@ Other settings you can change:
 2. Gmail sends a confirmation code to the Hub's mailbox. Sign in there, open that mail and confirm.
 3. Back in your own Gmail, create a filter that forwards only statement mails. Build it from the domains in your sender list, for example `from:(hdfcbank.net OR sbicard.com) has:attachment`.
 4. Choose **Forward it to** the Hub's address.
+
+## Outlook.com, Hotmail and Microsoft 365 mailboxes
+
+Microsoft no longer lets programs sign in to Outlook mailboxes with a password or an app password. Instead, the Hub **signs in with Microsoft**: you sign in on Microsoft's own page and allow the Hub to read and send mail. The Hub never sees your Microsoft password.
+
+For this the Hub needs an **Application (client) ID**. You make it once, free of charge.
+
+### 1. Register the Hub with Microsoft (once)
+
+1. Open **portal.azure.com** and sign in. With only a personal Outlook or Hotmail account, Microsoft first asks you to create a free Azure account. It may ask for a card to verify who you are; registering an app costs nothing.
+2. Search for **App registrations** and click **New registration**.
+3. **Name**: `Finance Hub`. **Supported account types**: **Accounts in any organizational directory and personal Microsoft accounts**. Leave **Redirect URI** empty. Click **Register**.
+4. Copy the **Application (client) ID** shown on the overview page.
+5. Open **Authentication**, set **Allow public client flows** to **Yes**, and click **Save**.
+
+You don't need to add permissions or secrets: the Hub asks for mail access itself when you sign in.
+
+### 2. Add the mailbox and sign in
+
+1. On **Settings › Mail inbox**, click **Add a mailbox** and choose **Outlook.com / Hotmail / Microsoft 365**.
+2. Enter the **Mailbox address** and paste the **Application (client) ID**. Click **Add mailbox**.
+3. Click **Sign in with Microsoft**. The Hub shows a short code and a link (`microsoft.com/devicelogin`).
+4. Open the link, type the code, sign in to that Outlook account, and click **Accept**.
+5. Back in the Hub, the mailbox shows **Signed in with Microsoft ✓** after a few seconds.
+
+The sign-in is kept inside your encrypted data and renewed automatically. If Microsoft withdraws it (for example after you change your Microsoft password, or after about three months without use), the mailbox says so: click **Sign in again**. The sign-out button removes the Hub's access.
+
+Outlook has no labels, so the Hub leaves handled mails as they are; it remembers which mails it has read.
+
+### Other mailboxes
+
+Choose **Another mailbox (IMAP with a password)** for a provider that still accepts a password (or an app password) for IMAP. Enter its **IMAP server** and **Port** under **Server, folder and label**, as the provider gives them.
+
+## Several mailboxes
+
+You can add as many mailboxes as you like, for example a personal Gmail and a company Outlook. Each check reads all of them.
+
+- The **Reading rules** (senders, forwarding addresses, how often) apply to every mailbox.
+- A mail that reaches more than one mailbox is read only once.
+- With more than one mailbox, every mail in the list shows which mailbox it came from.
+- **Pause** (the pause button) stops reading a mailbox without removing it. **Remove** (the bin) forgets the mailbox and its password; mails already read stay in the Hub.
+- Reminders and problem reports are sent from **one** mailbox, marked **sends reminders**. To choose another, click its send button (the paper plane).
+
+## When a mailbox does not connect
+
+| The Hub says | What to do |
+|---|---|
+| **Gmail needs an app password** (Google's message: "Application-specific password required") | You entered your normal Gmail password. Make an app password as in step 2 above and enter that instead. |
+| Gmail refused the address or password | Check the address, and make a new app password if needed. App passwords stop working when you change your Google password. |
+| IMAP is turned off | In Gmail: **Settings › Forwarding and POP/IMAP › Enable IMAP**. |
+| Sign in with Microsoft first / the sign-in has expired | Click **Sign in with Microsoft** (or **Sign in again**) next to the mailbox. |
+| Turn on "Allow public client flows" | In the app registration: **Authentication › Allow public client flows = Yes › Save**. |
+| The application (client) ID was not found | Copy the ID again from the app registration's overview page and paste it with the edit button. |
+| This account cannot sign in to that app registration | In the app registration, set the supported account types to **any organizational directory and personal Microsoft accounts**. |
 
 ## The sender list
 
@@ -76,7 +133,7 @@ Put your own address under **My forwarding addresses** only if you will also for
 Fake mails often pretend to come from a bank. Before opening a mail, the Hub asks your mail server's own verdict:
 
 - the mail must pass **DMARC** for the sender's domain, or carry a **DKIM** signature from that domain;
-- with Gmail, only the check that Google's own server added is trusted.
+- with Gmail, only the check that Google's own server added is trusted; with Outlook, the check that Microsoft's server added.
 
 A mail that fails is marked **Failed sender check** and is never opened. Treat it as suspicious in your own mailbox too.
 
@@ -121,13 +178,13 @@ Mails without an attachment, such as debit, credit, UPI and card alerts, are kep
 ## Privacy
 
 - The Hub never clicks anything in a mail and never opens links.
-- Mails stay **unread** in the mailbox. Handled mails get the **FinanceHub** label.
+- Mails stay **unread** in the mailbox. In Gmail, handled mails get the **FinanceHub** label.
 - Mails from senders not on your list are never downloaded; the Hub reads only the sender, subject and date.
-- The app password is stored only inside your encrypted data and is never shown again.
+- App passwords and Microsoft sign-ins are stored only inside your encrypted data and are never shown again.
 - Files waiting for you, and alert texts, are stored encrypted with your key. They are erased once you add, dismiss or clear them.
 
 ## Good to know
 
 - Automatic checks run only while the Hub is unlocked and open in a browser tab. A tab hidden behind other tabs, or a minimised window, does not check. **Check now** always works.
 - The Hub reads up to 30 statement mails per check. If more are waiting, it says so and reads them on the next check.
-- The same mailbox sends your [Reminders by mail](help:reminders-by-mail).
+- The mailbox marked **sends reminders** sends your [Reminders by mail](help:reminders-by-mail).
