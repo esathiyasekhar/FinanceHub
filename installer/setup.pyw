@@ -42,7 +42,9 @@ IS_WIN = os.name == 'nt'
 # ── helpers ─────────────────────────────────────────────────────────────────
 def payload():
     """The release zip shipped next to this file (FinanceHub_<version>.zip)."""
-    zips = sorted(HERE.glob('FinanceHub_*.zip'))
+    def _ver(p):                                     # 1.10 sorts after 1.9
+        return tuple(int(x) if x.isdigit() else 0 for x in p.stem.split('_', 1)[-1].split('.'))
+    zips = sorted(HERE.glob('FinanceHub_*.zip'), key=_ver)
     if not zips:
         raise SystemExit('The Finance Hub release (FinanceHub_<version>.zip) is missing next to setup.pyw.')
     return zips[-1]

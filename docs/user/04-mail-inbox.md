@@ -114,6 +114,7 @@ You can add as many mailboxes as you like, for example a personal Gmail and a co
 | Sign in with Microsoft first / the sign-in has expired | Click **Sign in with Microsoft** (or **Sign in again**) next to the mailbox. |
 | Turn on "Allow public client flows" | In the app registration: **Authentication › Allow public client flows = Yes › Save**. |
 | The application (client) ID was not found | Copy the ID again from the app registration's overview page and paste it with the edit button. |
+| The app registration accepts only its own directory (Microsoft: AADSTS50059 "No tenant-identifying information found") | In the app registration open **Authentication**, set **Supported account types** to **Accounts in any organizational directory and personal Microsoft accounts**, **Save**, and sign in again. If Azure refuses to save, open **Manifest**, set `"requestedAccessTokenVersion": 2` (under `"api"`), save, then change the account types. |
 | This account cannot sign in to that app registration | In the app registration, set the supported account types to **any organizational directory and personal Microsoft accounts**. |
 
 ## The sender list

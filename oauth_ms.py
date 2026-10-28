@@ -62,6 +62,11 @@ def friendly(j):
                        ('AADSTS700016', 'the application (client) ID was not found — copy it again from the app registration'),
                        ('AADSTS50020', 'this account cannot sign in to that app registration — set its supported account types to '
                                        '“any organizational directory and personal Microsoft accounts”'),
+                       ('AADSTS50059', 'the app registration accepts only its own directory, so a Hotmail / Outlook.com account cannot sign '
+                                       'in — in the Azure portal open the app › Authentication › Supported account types, choose '
+                                       '“Accounts in any organizational directory and personal Microsoft accounts”, Save, then sign in again'),
+                       ('AADSTS50194', 'the app registration is single-tenant — in the Azure portal set its supported account types to '
+                                       '“any organizational directory and personal Microsoft accounts”, Save, then sign in again'),
                        ('AADSTS65001', 'access to mail was not allowed — sign in again and accept'),
                        ('invalid_grant', 'the Microsoft sign-in has expired or was withdrawn — click “Sign in with Microsoft” again'),
                        ('expired_token', 'the code expired before you signed in — start again'),

@@ -76,6 +76,7 @@ p2 = O.start(CID, 'common')
 assert p2['tenant'] == 'consumers' and '/consumers/' in CALLS[-1][0]
 STATE['personal_only'] = False
 assert 'public client' in O.friendly({'error_description': 'AADSTS70002: The client must be marked as public'})
+assert 'personal Microsoft accounts' in O.friendly({'error_description': 'AADSTS50059: No tenant-identifying information found in either the request'})
 assert O.xoauth2('a@b.c', 'T') == 'user=a@b.c\x01auth=Bearer T\x01\x01'
 print('oauth_ms OK')
 

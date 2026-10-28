@@ -3,6 +3,12 @@
 Every change gets a new version number (shown at the bottom of the sidebar). From 28 Oct 2026 versions run 1.1, 1.2, …
 Earlier versions (v2 – v11) and their data were deleted at the owner's request; this log starts with 1.1.
 
+## 1.10 — 2026-10-28
+- **Sign in with Microsoft:** the error AADSTS50059 ("No tenant-identifying information found") now says what to do — the
+  Azure app registration accepts only its own directory; set its *Supported account types* to "Accounts in any
+  organizational directory and personal Microsoft accounts". AADSTS50194 (single-tenant app) gets the same advice.
+- Setup picks the newest release zip by version number (1.10 after 1.9).
+
 ## 1.9 — 2026-10-28
 **Categories** (*Settings › Categories*)
 - **Add a category** anywhere: under any category, or as a new top-level group next to Income / Expenses / Transfers /
