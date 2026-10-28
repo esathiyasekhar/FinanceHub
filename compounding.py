@@ -1,7 +1,7 @@
 """Finance Hub — Wealth planner: the Compounding Calculator (v1.11) rebuilt inside the Hub.
 
-The maths is the calculator's own tested engine, `static/planner/calculator.js` (unchanged), run in the
-browser. This module stores users, plans, goals and year-end records in finance.db and fills the Annual
+The maths is the calculator's own tested engine, `static/planner/calculator.js` (1.12: self include also
+covers the lump sum; monthly figures per year), run in the browser. This module stores users, plans, goals and year-end records in finance.db and fills the Annual
 review from the Hub's own portfolio.
 
 Data

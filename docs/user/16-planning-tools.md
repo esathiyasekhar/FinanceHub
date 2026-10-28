@@ -25,7 +25,7 @@ Set the **Portfolio strategy**:
 - **Core CAGR** and **Satellite CAGR**;
 - **Horizon**, in years.
 
-Then fill in the contributions under **Self**, and under **Spouse** if you tick **Include spouse (same core / satellite pots)**:
+Then fill in the contributions under **Self** and, with the **Spouse** button, the spouse's. A person's amounts count only while their switch — **Include my contributions (lump sum and SIP)** or **Include spouse** — is on. Typing a lump sum or SIP for someone who is switched off switches them on; if they are switched off with amounts filled in, a red note says those amounts are not counted.
 - **Initial lump sum ₹** and **Monthly SIP ₹**;
 - **Yearly step-up**, as a percentage or as a fixed ₹ amount added each year, and the **Last step-up in year**;
 - **SIP runs for (years)**, plus months.
@@ -36,7 +36,14 @@ The results update as you type:
 - **Money doubles every**;
 - the Core and Satellite split and the **Growth path** chart (**Linear** or **Log**).
 
-With a spouse included, a strip shows what the spouse's money adds and how much sooner the corpus is reached.
+With a spouse included, a strip shows what the spouse's money adds and how much sooner the corpus is reached. It compares the plans only; recorded year-end values (Annual review) are not used there.
+
+How the numbers are worked out, so you can check them:
+- each year's SIP is the monthly SIP after step-ups × the months it runs that year (12, or the extra months in the last year);
+- money added during a year earns half a year's return; the lump sum and everything from earlier years earn the full year's return;
+- Core and Satellite grow separately and are not rebalanced, so the faster Satellite becomes a larger share over time — that is why the **Portfolio IRR** can be above the **Blended CAGR**.
+
+For example, ₹1,00,000 lump sum plus ₹10,000 a month for one year at 10%: 1,00,000 + 1,20,000 invested, + 10,000 on the lump sum and + 6,000 on the SIPs = ₹2,36,000.
 
 ### Goal & schedule
 
@@ -44,7 +51,7 @@ With a spouse included, a strip shows what the spouse's money adds and how much 
 2. Set the **Deadline** in years from the start of the plan.
 3. Try a different **Blended CAGR to assume**. **Back to my CAGR** resets it.
 
-The tiles show when the goal is reached, the **Monthly SIP to hit it on time**, and the **CAGR needed with your SIP**. **What a different CAGR does** compares rates side by side; click a row to assume that rate. The **Doubling ladder** and the **Year-by-year schedule (60 years)** follow, with **CSV** and **Copy** buttons.
+The tiles show when the goal is reached, the **Monthly SIP to hit it on time**, and the **CAGR needed with your SIP**. **What a different CAGR does** compares rates side by side; click a row to assume that rate. The **Doubling ladder** and the **Year-by-year schedule (60 years)** follow, with **CSV** and **Copy** buttons. The schedule shows, for you and the spouse, the **₹/month** SIP of each year (with "× 6 mo" in a part year) and the **added** amount for the whole year; year 0 shows the lump sums.
 
 ### Annual review
 

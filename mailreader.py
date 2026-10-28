@@ -22,6 +22,7 @@ import email.utils
 import hashlib
 import imaplib
 import json
+import logging
 import re
 from collections import defaultdict
 import ssl
@@ -80,7 +81,7 @@ kfintech.com"""
 
 DEFAULTS = {'host': 'imap.gmail.com', 'port': '993', 'user': '', 'password': '', 'folder': 'INBOX', 'label': 'FinanceHub',
             'interval': '15', 'enabled': '0', 'auto_import': '1', 'since_days': '60', 'senders': DEFAULT_SENDERS,
-            'forwarders': '', 'senders_off': '', 'last_check': '', 'last_result': '', 'uidvalidity': '', 'last_uid': '0',
+            'forwarders': '', 'senders_off': '', 'delete_after': '3', 'last_check': '', 'last_result': '', 'uidvalidity': '', 'last_uid': '0',
             'provider': '', 'ms_client_id': '', 'ms_tenant': 'common', 'oauth_refresh': ''}     # 1.8: Outlook (Microsoft sign-in)
 PROVIDERS = {'gmail': ('Gmail', 'imap.gmail.com', '993', 'FinanceHub'),
              'outlook': ('Outlook.com / Hotmail / Microsoft 365', 'outlook.office365.com', '993', ''),
@@ -137,8 +138,19 @@ VAULT = None
 
 def ensure_schema(con):
     con.executescript(SCHEMA)
-    if 'mailbox_id' not in {r[1] for r in con.execute('PRAGMA table_info(mail_items)')}:
+    cols = {r[1] for r in con.execute('PRAGMA table_info(mail_items)')}
+    if 'mailbox_id' not in cols:
         con.execute('ALTER TABLE mail_items ADD COLUMN mailbox_id INTEGER')
+    if 'trash' not in cols:                     # 1.12: '' · 'pending' (to move to the mailbox's Trash) · 'done' · 'kept'
+        con.execute("ALTER TABLE mail_items ADD COLUMN trash TEXT DEFAULT ''")
+        con.execute('ALTER TABLE mail_items ADD COLUMN trash_note TEXT')
+    if 'handled_at' not in cols:                # when the item last changed status (imported later, dismissed …)
+        con.execute('ALTER TABLE mail_items ADD COLUMN handled_at TEXT')
+    con.execute("CREATE TRIGGER IF NOT EXISTS mail_items_handled AFTER UPDATE OF status ON mail_items "
+                "WHEN NEW.status IS NOT OLD.status BEGIN UPDATE mail_items SET handled_at=datetime('now') WHERE id=NEW.id; END")
+    if not con.execute("SELECT 1 FROM mail_settings WHERE key='delete_since'").fetchone():
+        # automatic deletion applies only to mails read from now on — nothing read before the upgrade goes at once
+        con.execute("INSERT INTO mail_settings (key, value) VALUES ('delete_since', datetime('now'))")
     for k, v in DEFAULTS.items():
         if k not in _MOVED:                     # mailbox fields live in the mailboxes table since 1.8
             con.execute('INSERT OR IGNORE INTO mail_settings (key, value) VALUES (?,?)', (k, v))
@@ -387,6 +399,65 @@ class Imap:
         except Exception:  # noqa: BLE001  (labelling is a convenience only)
             pass
 
+    def message_id_of(self, uid):
+        """The Message-ID of one mail (to be sure a UID still points at the same mail before deleting it)."""
+        typ, data = self.m.uid('FETCH', str(uid), '(BODY.PEEK[HEADER.FIELDS (MESSAGE-ID)])')
+        if typ != 'OK':
+            raise RuntimeError('the mailbox did not answer the check')
+        for part in data or []:
+            if isinstance(part, tuple):
+                h = email.message_from_bytes(part[1] or b'', policy=email.policy.default)
+                return str(h.get('Message-ID') or '').strip()
+        return None                                       # no such mail any more
+
+    def trash_folder(self):
+        """The mailbox's Trash folder (special-use \\Trash, else a usual name)."""
+        if getattr(self, '_trash', None):
+            return self._trash
+        names = []
+        try:
+            typ, data = self.m.list()
+            for line in data or []:
+                t = line.decode(errors='replace') if isinstance(line, bytes) else str(line)
+                m = re.match(r'\((?P<flags>[^)]*)\)\s+(?:"[^"]*"|NIL)\s+(?P<name>.+)$', t)
+                if not m:
+                    continue
+                name = m.group('name').strip()
+                name = name[1:-1].replace('\\"', '"') if name.startswith('"') else name
+                if '\\trash' in m.group('flags').lower():
+                    self._trash = name
+                    return name
+                names.append(name)
+        except Exception:  # noqa: BLE001
+            pass
+        for cand in ('[Gmail]/Trash', '[Google Mail]/Trash', 'Deleted', 'Deleted Items', 'Trash', 'INBOX.Trash', 'Deleted Messages'):
+            if cand in names:
+                self._trash = cand
+                return cand
+        return None
+
+    def trash(self, uid):
+        """Move one mail to the mailbox's Trash (recoverable there). Never deletes for good: without a Trash folder
+        it raises, and without UIDPLUS it only marks the original deleted (no EXPUNGE that could remove other mails)."""
+        folder = self.trash_folder()
+        if not folder:
+            raise RuntimeError('no Trash folder found in this mailbox — nothing deleted')
+        u = str(uid)
+        if 'MOVE' in self.caps:
+            typ, _ = self.m.uid('MOVE', u, self._q(folder))
+            if typ == 'OK':
+                return True
+        typ, _ = self.m.uid('COPY', u, self._q(folder))
+        if typ != 'OK':
+            raise RuntimeError('could not copy the mail to the Trash')
+        try:
+            self.m.uid('STORE', u, '+FLAGS', '(\\Deleted)')
+            if 'UIDPLUS' in self.caps:
+                self.m.uid('EXPUNGE', u)
+        except Exception:  # noqa: BLE001  (the copy is in the Trash: do not copy it again)
+            pass
+        return True
+
     def close(self):
         try:
             self.m.logout()
@@ -569,6 +640,13 @@ def check_mail(con, factory=None, force=False, mid=None):
         total['more'] = total['more'] or r.get('more', False)
         msgs.append((f"{s.get('name') or s['user']}: " if len(targets) > 1 else '') + r.get('msg', ''))
     total['ok'] = any(oks) if oks else False
+    try:                                                    # 1.12: handled mails leave the mailbox after N days
+        if mark_old_for_deletion(con) or con.execute("SELECT 1 FROM mail_items WHERE trash='pending' LIMIT 1").fetchone():
+            moved, _f = trash_pending(con, factory)
+            if moved:
+                msgs.append(f'{moved} handled mail(s) moved to the Trash')
+    except Exception as e:  # noqa: BLE001  (deleting must never stop reading)
+        logging.getLogger('financehub.mail').warning('automatic mail deletion: %s', e)
     total['msg'] = ' · '.join(msgs)
     _set(con, last_check=datetime.now().isoformat(timespec='seconds'), last_result=total['msg'][:300])
     con.commit()
@@ -716,6 +794,106 @@ def _check_box(con, s, factory=None):
         cli.close()
 
 
+CAPTURED = ('imported', 'duplicate', 'done', 'skipped')   # the Hub has what it needs (or there was nothing to take)
+
+
+def _drop_from_list(con, item_id):
+    """Remove a mail from the Hub's list; only its Message-ID stays so the mail is never read again."""
+    _erase_blob(con, item_id)
+    con.execute("UPDATE mail_items SET status='deleted', subject=NULL, attachment=NULL, note=NULL, result=NULL, "
+                "auth_note=NULL, from_addr=NULL, via=NULL WHERE id=?", (item_id,))
+
+
+def mark_old_for_deletion(con, days=None):
+    """1.12: mails handled more than N days ago go to the mailbox's Trash; handled ones also leave the Hub's list
+    (alerts stay in the Hub — the kept text is their captured data). → number marked"""
+    if days is None:
+        try:
+            days = int(shared(con).get('delete_after') or 0)
+        except ValueError:
+            days = 0
+    if days <= 0:
+        return 0
+    since = shared(con).get('delete_since') or '9999'
+    ok = (*CAPTURED, 'alert', 'deleted')
+    ph = ','.join('?' * len(ok))
+    # one mail can have several rows (one per attachment): it goes only when every row is handled and old enough
+    rows = con.execute(f"SELECT i.id, i.status FROM mail_items i WHERE COALESCE(i.trash,'')='' AND i.uid IS NOT NULL "
+                       f"AND i.mailbox_id IS NOT NULL AND i.status IN ({ph}) AND i.status<>'deleted' AND i.created_at >= ? "
+                       f"AND NOT EXISTS (SELECT 1 FROM mail_items o WHERE o.mailbox_id=i.mailbox_id AND o.uid=i.uid AND "
+                       f"(o.status NOT IN ({ph}) OR COALESCE(o.handled_at, o.created_at) > datetime('now', ?)))",
+                       (*ok, since, *ok, f'-{days} day')).fetchall()
+    for r in rows:
+        con.execute("UPDATE mail_items SET trash='pending' WHERE id=?", (r['id'],))
+        if r['status'] != 'alert':
+            _drop_from_list(con, r['id'])
+    return len(rows)
+
+
+def trash_pending(con, factory=None):
+    """Move every mail marked 'pending' to its mailbox's Trash. A mail is deleted only if its UID still carries the
+    same Message-ID. Mailboxes that cannot be reached are tried again on the next check. → (moved, failed)"""
+    moved = failed = 0
+    by_box = {}
+    for r in con.execute("SELECT id, uid, message_id, mailbox_id FROM mail_items WHERE trash='pending'").fetchall():
+        by_box.setdefault(r['mailbox_id'], []).append(r)
+    ok = (*CAPTURED, 'alert', 'deleted')
+    for mid, rows in by_box.items():
+        s = settings(con, mid)
+        if not s.get('id'):                                 # the mailbox was removed from the Hub
+            for r in rows:
+                con.execute("UPDATE mail_items SET trash='kept', trash_note='mailbox removed from the Hub — left there' WHERE id=?", (r['id'],))
+            continue
+        if not configured(s) or str(s.get('active')) == '0':
+            for r in rows:
+                con.execute("UPDATE mail_items SET trash_note=? WHERE id=?", ('mailbox paused or not set up — will delete later', r['id']))
+            continue
+        ready = []
+        for r in rows:                                      # other files of the same mail still waiting → the mail stays
+            if con.execute(f"SELECT 1 FROM mail_items WHERE mailbox_id=? AND uid=? AND id<>? AND status NOT IN ({','.join('?' * len(ok))})",
+                           (mid, r['uid'], r['id'], *ok)).fetchone():
+                con.execute('UPDATE mail_items SET trash_note=? WHERE id=?', ('waits for the other file(s) of this mail', r['id']))
+            else:
+                ready.append(r)
+        rows = ready
+        if not rows:
+            continue
+        try:
+            cli = connect(s, factory, con)
+        except Exception as e:  # noqa: BLE001
+            for r in rows:
+                con.execute('UPDATE mail_items SET trash_note=? WHERE id=?', (f'will retry: {explain(e, s)}'[:200], r['id']))
+            failed += len(rows)
+            continue
+        try:
+            uv = cli.select(s['folder'] or 'INBOX')
+            for r in rows:
+                try:
+                    mid_now = cli.message_id_of(r['uid'])
+                    expect = r['message_id'] or ''
+                    same = (mid_now is not None and (mid_now == expect or (expect.startswith('uid-') and expect == f"uid-{uv}-{r['uid']}"
+                                                                         and not mid_now)))
+                    if mid_now is None:
+                        con.execute("UPDATE mail_items SET trash='done', trash_note='already gone from the mailbox' WHERE id=?", (r['id'],))
+                    elif not same:
+                        con.execute("UPDATE mail_items SET trash='kept', trash_note='the mailbox has changed — left there' WHERE id=?", (r['id'],))
+                    else:
+                        cli.trash(r['uid'])
+                        con.execute("UPDATE mail_items SET trash='done', trash_note=NULL WHERE id=?", (r['id'],))
+                        moved += 1
+                except Exception as e:  # noqa: BLE001
+                    con.execute('UPDATE mail_items SET trash_note=? WHERE id=?', (f'will retry: {str(e)[:150]}', r['id']))
+                    failed += 1
+        except Exception as e:  # noqa: BLE001
+            for r in rows:
+                con.execute('UPDATE mail_items SET trash_note=? WHERE id=?', (f'will retry: {str(e)[:150]}', r['id']))
+            failed += len(rows)
+        finally:
+            cli.close()
+    con.commit()
+    return moved, failed
+
+
 def refresh_review(con):
     """Items you imported yourself from the Import pages are marked handled and their stored copy erased."""
     for r in con.execute("SELECT id, file_hash FROM mail_items WHERE status='review' AND file_hash IS NOT NULL").fetchall():
@@ -850,7 +1028,7 @@ def register(app, get_db, upload_dir, vault):
             bl.append(dict(bs, kind=provider(bs), ready=configured(bs), signed_in=bool(bs.get('oauth_refresh')),
                            has_password=bool(bs.get('password'))))
         tab = request.args.get('tab', 'statements')
-        where = {'statements': "kind IN ('statement','contract_note','depository','other') AND status NOT IN ('ignored','rejected')",
+        where = {'statements': "kind IN ('statement','contract_note','depository','other') AND status NOT IN ('ignored','rejected','deleted')",
                  'review': "status='review'", 'alerts': "status='alert'", 'ignored': "status IN ('ignored','rejected')"}.get(tab, '1')
         items = con.execute(f'SELECT i.*, b.name AS box_name, b.user AS box_user FROM mail_items i LEFT JOIN mailboxes b ON b.id=i.mailbox_id '
                             f'WHERE {where} ORDER BY received DESC, i.id DESC LIMIT 300').fetchall()
@@ -881,6 +1059,9 @@ def register(app, get_db, upload_dir, vault):
             kw['senders'] = '\n'.join(sender_entries(f['senders'])[0])
         if 'forwarders' in f:
             kw['forwarders'] = '\n'.join(dict.fromkeys(a for a in _lines(f['forwarders']) if '@' in a))
+        if 'delete_after' in f:
+            v = f.get('delete_after', '').strip()
+            kw['delete_after'] = str(max(0, min(365, int(v)))) if v.isdigit() else '0'
         kw['enabled'] = '1' if f.get('enabled') else '0'
         kw['auto_import'] = '1' if f.get('auto_import') else '0'
         _set(con, **kw)
@@ -1057,6 +1238,39 @@ def register(app, get_db, upload_dir, vault):
             return jsonify({'text': ''})
         return jsonify({'text': _unseal(it['blob']).decode('utf-8', 'replace')})
 
+    def mail_delete():
+        """1.12: Delete selected / Delete all — the mails go to the mailbox's Trash and leave the Hub's list."""
+        con = con_()
+        f = request.form
+        tab = f.get('tab', 'statements')
+        where = {'statements': "kind IN ('statement','contract_note','depository','other') AND status NOT IN ('ignored','rejected','deleted')",
+                 'review': "status='review'", 'alerts': "status='alert'", 'ignored': "status IN ('ignored','rejected')"}.get(tab)
+        if f.get('scope') == 'all' and where:
+            if tab == 'statements':
+                where += " AND status NOT IN ('review','error')"          # files waiting for you are deleted only on their tab
+            ids = [r[0] for r in con.execute(f'SELECT id FROM mail_items WHERE {where} ORDER BY received DESC, id DESC LIMIT 300')]
+        else:
+            ids = [int(x) for x in f.getlist('item') if str(x).isdigit()]
+        n = 0
+        for iid in ids:
+            r = con.execute("SELECT id, status, uid, mailbox_id, trash FROM mail_items WHERE id=? AND status<>'deleted'", (iid,)).fetchone()
+            if not r:
+                continue
+            _drop_from_list(con, iid)
+            if (r['trash'] or '') != 'done':                  # already gone from the mailbox: nothing more to do there
+                con.execute("UPDATE mail_items SET trash=? WHERE id=?", ('pending' if r['uid'] and r['mailbox_id'] else 'done', iid))
+            n += 1
+        con.commit()
+        if not n:
+            flash('Tick the mails to delete first.', 'warning')
+            return redirect(url_for('mail_page', tab=tab))
+        moved, failed = trash_pending(con, app.config.get('HUB_IMAP_FACTORY'))
+        msg = f'{n} mail(s) removed from the list; {moved} moved to the mailbox Trash.'
+        if failed:
+            msg += f' {failed} could not be deleted from the mailbox yet — the Hub tries again on the next check.'
+        flash(msg, 'success' if not failed else 'warning')
+        return redirect(url_for('mail_page', tab=tab))
+
     def mail_forget():
         """Erase the list of handled / ignored mails (stored copies included)."""
         con = con_()
@@ -1077,6 +1291,7 @@ def register(app, get_db, upload_dir, vault):
         ('/mail/<int:iid>', 'mail_item', mail_item, ['POST']),
         ('/mail/<int:iid>/text', 'mail_alert_text', mail_alert_text, ['GET']),
         ('/mail/forget', 'mail_forget', mail_forget, ['POST']),
+        ('/mail/delete', 'mail_delete', mail_delete, ['POST']),
         ('/mail/senders', 'mail_senders', senders_save, ['POST']),
         ('/mail/box/save', 'mail_box_save', box_save, ['POST']),
         ('/mail/box/<int:mid>', 'mail_box_action', box_action, ['POST']),

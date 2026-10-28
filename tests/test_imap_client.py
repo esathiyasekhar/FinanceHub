@@ -18,11 +18,12 @@ open(f'{_d}/k.pem', 'wb').write(_k.private_bytes(serialization.Encoding.PEM, ser
 MSG = {41: b'From: Bank <a@sbi.co.in>\r\nSubject: Statement\r\nDate: Wed, 07 Oct 2026 10:00:00 +0530\r\nMessage-ID: <m41@x>\r\n\r\nbody 41\r\n',
        42: b'From: Shop <b@shop.example>\r\nSubject: Sale\r\nMessage-ID: <m42@x>\r\n\r\nbody 42\r\n'}
 SEEN = []
+MOVED = []
 def hdr(m):
     return m.split(b'\r\n\r\n')[0] + b'\r\n\r\n'
 def serve(sock):
     ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER); ctx.load_cert_chain(f'{_d}/c.pem', f'{_d}/k.pem')
-    for _conn in range(2):
+    for _conn in range(3):
         conn, _ = sock.accept(); s = ctx.wrap_socket(conn, server_side=True); f = s.makefile('rwb')
         session(f)
 def session(f):
@@ -34,7 +35,7 @@ def session(f):
         SEEN.append(line.decode().strip())
         tag, cmd = line.split(b' ', 1); c = cmd.strip().upper()
         if c.startswith(b'CAPABILITY'):
-            w(b'* CAPABILITY IMAP4rev1 X-GM-EXT-1 UIDPLUS\r\n' + tag + b' OK done\r\n')
+            w(b'* CAPABILITY IMAP4rev1 X-GM-EXT-1 UIDPLUS MOVE\r\n' + tag + b' OK done\r\n')
         elif c.startswith(b'AUTHENTICATE XOAUTH2'):          # 1.8: Outlook
             w(b'+ \r\n')
             import base64
@@ -46,6 +47,19 @@ def session(f):
             w(b'* FLAGS (\\Seen)\r\n* 2 EXISTS\r\n* OK [UIDVALIDITY 9876] UIDs valid.\r\n* OK [UIDNEXT 43] Predicted next UID.\r\n' + tag + b' OK [READ-WRITE] INBOX selected.\r\n')
         elif c.startswith(b'UID SEARCH'):
             w(b'* SEARCH 41 42\r\n' + tag + b' OK SEARCH completed\r\n')
+        elif c.startswith(b'UID FETCH') and b'HEADER.FIELDS (MESSAGE-ID)' in c:      # 1.12: check before deleting
+            u = int(re.search(rb'UID FETCH (\d+)', c).group(1))
+            if u in MSG:
+                hh = b'Message-ID: <m%d@x>\r\n\r\n' % u
+                w(b'* 1 FETCH (UID %d BODY[HEADER.FIELDS (MESSAGE-ID)] {%d}\r\n' % (u, len(hh)) + hh + b')\r\n' + tag + b' OK Success\r\n')
+            else:
+                w(tag + b' OK Success\r\n')
+        elif c.startswith(b'LIST'):
+            w(b'* LIST (\\HasNoChildren) "/" "INBOX"\r\n* LIST (\\HasNoChildren \\Trash) "/" "[Gmail]/Trash"\r\n'
+              b'* LIST (\\HasNoChildren \\Sent) "/" "[Gmail]/Sent Mail"\r\n' + tag + b' OK Success\r\n')
+        elif c.startswith(b'UID MOVE'):
+            u = int(re.search(rb'UID MOVE (\d+)', c).group(1)); MOVED.append((u, cmd.strip().split(b' ', 3)[3].strip().decode())); MSG.pop(u, None)
+            w(b'* OK [COPYUID 1 %d 1]\r\n* 1 EXPUNGE\r\n' % u + tag + b' OK Success\r\n')
         elif c.startswith(b'UID FETCH') and b'HEADER.FIELDS' in c:
             out = b''
             for i, u in enumerate((41, 42), 1):
@@ -82,3 +96,11 @@ cli = M.Imap('127.0.0.1', port, 'hub@outlook.com', None, oauth_token='AT-synthet
 assert cli.select('INBOX') == '9876'; cli.close()
 assert 'XOAUTH2 user=hub@outlook.com|auth=Bearer AT-synthetic||' in SEEN and not any(x.split(' ', 1)[1].upper().startswith('LOGIN') for x in SEEN if ' ' in x), SEEN
 print('IMAP XOAUTH2 OK')
+# 1.12: delete = check the Message-ID, find the special-use Trash folder, UID MOVE there
+cli = M.Imap('127.0.0.1', port, 'hub@gmail.com', 'pw pw')
+cli.select('INBOX')
+assert cli.message_id_of(41) == '<m41@x>' and cli.message_id_of(99) is None
+assert cli.trash_folder() == '[Gmail]/Trash'
+assert cli.trash(41) and MOVED == [(41, '"[Gmail]/Trash"')], MOVED
+cli.close()
+print('IMAP trash OK')

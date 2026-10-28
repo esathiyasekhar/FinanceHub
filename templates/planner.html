@@ -24,6 +24,7 @@
 .chip.active, .chip:hover { border-color:var(--gold); color:var(--gold); }
 .equiv { font-size:.74rem; color:var(--muted); margin-top:.25rem; }
 .is-off { opacity:.45; pointer-events:none; }
+.is-dim { opacity:.55; }                                      /* 1.12: still editable — typing an amount switches the person on */
 .tbl td, .tbl th { font-size:.78rem; white-space:nowrap; font-variant-numeric:tabular-nums; vertical-align:middle; }
 .tbl tr.hl td { background:rgba(242,181,68,.10); }
 .tbl input { width:120px; font-size:.78rem; padding:.15rem .35rem; }
@@ -91,7 +92,8 @@
       {% for who, label in [('self', 'Self'), ('spouse', 'Spouse')] %}
       <div class="who-pane" data-who="{{ who }}" {% if who == 'spouse' %}style="display:none"{% endif %}>
         <div class="form-check form-switch mb-2"><input class="form-check-input" type="checkbox" id="{{ who }}Include">
-          <label class="form-check-label small" for="{{ who }}Include">{{ 'Include my contributions' if who == 'self' else 'Include spouse (same core / satellite pots)' }}</label></div>
+          <label class="form-check-label small" for="{{ who }}Include">{{ 'Include my contributions (lump sum and SIP)' if who == 'self' else 'Include spouse (lump sum and SIP, same core / satellite pots)' }}</label></div>
+        <div class="small mb-2" id="{{ who }}OffNote" style="display:none;color:var(--rose,#FF7A8A)"><i class="bi bi-exclamation-triangle me-1"></i>{{ 'Your' if who == 'self' else 'The spouse’s' }} amounts below are <b>not counted</b> — tick the switch above to include them.</div>
         <div id="{{ who }}Box">
           <div class="row g-2">
             <div class="col-6"><label class="pl-lbl">Initial lump sum ₹</label><input type="number" class="form-control form-control-sm" id="{{ who }}Lump" min="0" step="50000"></div>
@@ -169,6 +171,7 @@
 
     <div class="pl-card" id="spouseStrip" style="display:none">
       <h6><i class="bi bi-people me-2 c-gold"></i>What the spouse's money does</h6>
+      <div class="muted small mb-1" id="spPlanNote"></div>
       <div class="row g-2 text-center">
         <div class="col-6 col-md-3"><div class="tile"><div class="pl-lbl">Self only</div><div class="kpi-v c-rose" id="spSolo"></div><div class="kpi-s">invested <span id="spSoloInv"></span></div></div></div>
         <div class="col-6 col-md-3"><div class="tile"><div class="pl-lbl">Together</div><div class="kpi-v c-growth" id="spTeam"></div><div class="kpi-s">invested <span id="spTeamInv"></span></div></div></div>
@@ -224,7 +227,7 @@
     <button class="btn btn-sm btn-outline-success ms-auto" id="btnSchedCsv"><i class="bi bi-download me-1"></i>CSV</button>
     <button class="btn btn-sm btn-outline-secondary ms-1" id="btnSchedCopy"><i class="bi bi-clipboard me-1"></i>Copy</button></div>
   <div class="table-responsive" style="max-height:520px">
-  <table class="table table-dark table-sm mb-0 tbl"><thead style="position:sticky;top:0"><tr><th>Year</th><th>Self SIP</th><th>Spouse SIP</th>
+  <table class="table table-dark table-sm mb-0 tbl"><thead style="position:sticky;top:0"><tr><th>Year</th><th title="Your monthly SIP in that year (after step-ups)">Self ₹/month</th><th title="Everything you put in that year: monthly SIP × months (year 0: lump sum)">Self added</th><th title="Spouse's monthly SIP in that year">Spouse ₹/month</th><th title="Everything the spouse put in that year (year 0: lump sum)">Spouse added</th>
     <th>Core open</th><th>Core added</th><th>Core growth</th><th>Core close</th><th>Sat open</th><th>Sat added</th><th>Sat growth</th><th>Sat close</th>
     <th>Corpus</th><th>Invested</th><th>Multiple</th><th id="thShare">% of final</th><th>Yrs to 2×</th></tr></thead>
     <tbody id="schedBody"></tbody></table></div>

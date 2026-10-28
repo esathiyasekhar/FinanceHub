@@ -1,5 +1,5 @@
-/* Finance Hub — Wealth planner page (Compounding Calculator v1.11 rebuilt in Hub style).
-   All numbers come from window.CompoundingEngine (calculator.js, unchanged). This file only reads the
+/* Finance Hub — Wealth planner page (Compounding Calculator v1.11 rebuilt in Hub style; 1.12 fixes).
+   All numbers come from window.CompoundingEngine (calculator.js). This file only reads the
    inputs, calls the engine and draws cards, tables and Chart.js charts. Users are saved through /api/cc. */
 (function () {
   'use strict';
@@ -158,12 +158,16 @@
     ['self', 'spouse'].forEach(w => {
       set(`d${w}Step`, fmtPct(sp[`${w}StepUp`] / 100));
       $(`${w}StepBox`).classList.toggle('is-off', !sp[`${w}StepUpOn`]);
-      $(`${w}Box`).classList.toggle('is-off', !sp[`${w}Include`] && w === 'spouse');
-      if (w === 'self') { $('selfMonthly').closest('.col-6').classList.toggle('is-off', !sp.selfInclude); }
+      $(`${w}Box`).classList.toggle('is-dim', !sp[`${w}Include`]);
       html(`${w}Equiv`, sp[`${w}StepUpOn`] ? stepEquiv(p[`${w}Monthly`], p[`${w}StepUpMode`], p[`${w}StepUp`], p[`${w}StepUpAmt`], p[`${w}StepUpStop`], p[`${w}AddStop`]) : 'Step-up is off: the SIP stays flat.');
     });
-    set('chipSelf', sp.selfInclude && sp.selfMonthly > 0 ? `${cr(sp.selfMonthly, 0)}/mo` : sp.selfLump > 0 ? 'lump' : (sp.selfInclude ? '₹0' : 'off'));
+    set('chipSelf', !sp.selfInclude ? 'off' : sp.selfMonthly > 0 ? `${cr(sp.selfMonthly, 0)}/mo` : sp.selfLump > 0 ? 'lump' : '₹0');
     set('chipSpouse', !sp.spouseInclude ? 'off' : sp.spouseMonthly > 0 ? `${cr(sp.spouseMonthly, 0)}/mo` : sp.spouseLump > 0 ? 'lump' : '₹0');
+    ['self', 'spouse'].forEach(w => {                      // amounts typed for someone who is switched off
+      const ignored = !sp[`${w}Include`] && (sp[`${w}Lump`] > 0 || sp[`${w}Monthly`] > 0);
+      const note = $(`${w}OffNote`);
+      if (note) { note.style.display = ignored ? '' : 'none'; }
+    });
 
     const r = CE.calculateSchedule(p, state.actuals);
     state.last = r;
@@ -201,6 +205,7 @@
   function updateSpouse(p) {
     if (!p.spouseInclude) { $('spouseStrip').style.display = 'none'; return null; }
     $('spouseStrip').style.display = '';
+    set('spPlanNote', Object.keys(state.actuals).length ? 'Plan figures — your recorded year-end values are not used in this comparison.' : '');
     const sa = CE.analyzeSpouseImpact(p);
     set('spSaved', sa.timeSavedYears > 0.05 ? `${sa.timeSavedYears.toFixed(1)} years` : '—');
     set('spReach', sa.yearsWithSpouseToReachSelfTarget !== null ? sa.yearsWithSpouseToReachSelfTarget.toFixed(1) : '—');
@@ -299,7 +304,7 @@
     const lastSip = Math.min(p.selfAddStop, g.years), lastStep = Math.min(p.selfStepUpStop, lastSip);
     const stepTxt = lastStep < 2 ? 'no step-up' : (p.selfStepUpMode === 'amt' ? (p.selfStepUpAmt > 0 ? `rising ${full(p.selfStepUpAmt)}/mo each year to year ${lastStep}` : 'no step-up')
       : (p.selfStepUp > 0 ? `stepped up ${fmtPct(p.selfStepUp)} a year to year ${lastStep}` : 'no step-up'));
-    const lumpTxt = (p.selfLump + (p.spouseInclude ? p.spouseLump : 0)) > 0 ? 'your lump sum' : 'no lump sum';
+    const lumpTxt = ((p.selfInclude ? p.selfLump : 0) + (p.spouseInclude ? p.spouseLump : 0)) > 0 ? 'your lump sum' : 'no lump sum';
     const spTxt = p.spouseInclude ? ' and your spouse’s plan' : '';
     set('gSipSub', res.sipUnreachable ? `Your SIP stops after year ${p.selfAddStop}, so no amount gets there. Raise “SIP runs for” in the Core engine.`
       : res.requiredMonthlySIP === 0 ? `${lumpTxt[0].toUpperCase() + lumpTxt.slice(1)}${spTxt} already get there at ${fmtPct(assumed)} — no SIP needed.`
@@ -339,7 +344,7 @@
 
   function renderLadder(r, p) {
     const ms = r.milestones.filter(m => typeof m.yearReached === 'number').slice(0, 14);
-    const base = p.selfLump + (p.spouseInclude ? p.spouseLump : 0);
+    const base = (p.selfInclude ? p.selfLump : 0) + (p.spouseInclude ? p.spouseLump : 0);
     if (!ms.length) { html('ladder', '<span class="muted small">Enter a lump sum or SIP in the Core engine to see the ladder.</span>'); set('ladderNote', ''); return; }
     const baseAmt = base > 0 ? base : ms[0].target / 2;
     set('ladderNote', `— multiples of ${base > 0 ? 'your ' + full(baseAmt) + ' starting capital' : 'the first year’s SIP (' + full(baseAmt) + ')'}, SIPs included.` +
@@ -350,9 +355,11 @@
 
   function renderSchedule(rows, H) {
     const f = (v) => CE.formatINR(v, { decimals: 0 }), dash = '<span class="muted">—</span>', fin = rows[H] ? rows[H].totalCorpus : 0;
+    const mo = (m, n, y) => (y === 0 || !(m > 0) || !n) ? dash : f(m) + (n < 12 ? ` <span class="muted">× ${n} mo</span>` : '');
     set('thShare', `% of yr-${H}`);
     html('schedBody', rows.map(x => `<tr class="${x.year === H ? 'hl' : ''}"><td><b>${x.year}</b>${x.isActual ? ' <span class="badge bg-warning text-dark">actual</span>' : ''}</td>
-      <td>${x.selfContrib > 0 ? f(x.selfContrib) : dash}</td><td>${x.spouseContrib > 0 ? f(x.spouseContrib) : dash}</td>
+      <td>${mo(x.selfMonthly, x.selfMonths, x.year)}</td><td>${x.selfContrib > 0 ? f(x.selfContrib) + (x.year === 0 ? ' <span class="muted">lump</span>' : '') : dash}</td>
+      <td>${mo(x.spouseMonthly, x.spouseMonths, x.year)}</td><td>${x.spouseContrib > 0 ? f(x.spouseContrib) + (x.year === 0 ? ' <span class="muted">lump</span>' : '') : dash}</td>
       <td>${f(x.coreOpen)}</td><td>${x.coreAdd > 0 ? f(x.coreAdd) : dash}</td><td>${f(x.coreRet)}</td><td><b>${f(x.coreClose)}</b></td>
       <td>${f(x.satOpen)}</td><td>${x.satAdd > 0 ? f(x.satAdd) : dash}</td><td>${f(x.satRet)}</td><td><b>${f(x.satClose)}</b></td>
       <td class="c-growth">${f(x.totalCorpus)}</td><td>${f(x.totalInvested)}</td><td class="c-gold">${x.multiple.toFixed(2)}×</td>
@@ -360,8 +367,8 @@
       <td>${typeof x.yrsTo2x === 'number' ? x.yrsTo2x.toFixed(2) : '<span class="muted">' + x.yrsTo2x + '</span>'}</td></tr>`).join(''));
   }
   function scheduleCsv() {
-    const rows = state.last.yearlyRows, head = ['Year', 'Self SIP', 'Spouse SIP', 'Core open', 'Core added', 'Core growth', 'Core close', 'Sat open', 'Sat added', 'Sat growth', 'Sat close', 'Corpus', 'Invested', 'Multiple', 'Years to 2x', 'Actual'];
-    return [head.join(',')].concat(rows.map(x => [x.year, x.selfContrib, x.spouseContrib, x.coreOpen, x.coreAdd, x.coreRet, x.coreClose, x.satOpen, x.satAdd, x.satRet, x.satClose, x.totalCorpus, x.totalInvested]
+    const rows = state.last.yearlyRows, head = ['Year', 'Self monthly SIP', 'Self months', 'Self added', 'Spouse monthly SIP', 'Spouse months', 'Spouse added', 'Core open', 'Core added', 'Core growth', 'Core close', 'Sat open', 'Sat added', 'Sat growth', 'Sat close', 'Corpus', 'Invested', 'Multiple', 'Years to 2x', 'Actual'];
+    return [head.join(',')].concat(rows.map(x => [x.year, x.selfMonthly, x.selfMonths, x.selfContrib, x.spouseMonthly, x.spouseMonths, x.spouseContrib, x.coreOpen, x.coreAdd, x.coreRet, x.coreClose, x.satOpen, x.satAdd, x.satRet, x.satClose, x.totalCorpus, x.totalInvested]
       .map(v => Math.round(v)).concat([x.multiple.toFixed(2), typeof x.yrsTo2x === 'number' ? x.yrsTo2x.toFixed(2) : x.yrsTo2x, x.isActual ? 'yes' : '']).join(','))).join('\n');
   }
 
@@ -635,6 +642,13 @@
     if (t === 'young') updateYoung(); else updateAll();
   }
   document.querySelectorAll('#plTabs .nav-link').forEach(b => b.addEventListener('click', () => showTab(b.dataset.tab)));
+  // 1.12: typing an amount for someone who is switched off switches them on (their money was silently ignored before)
+  ['self', 'spouse'].forEach(w => [`${w}Lump`, `${w}Monthly`].forEach(id => $(id).addEventListener('input', () => {
+    if (num(id, 0) > 0 && !$(`${w}Include`).checked) {
+      $(`${w}Include`).checked = true;
+      toast(w === 'spouse' ? 'Spouse included in the plan — untick “Include spouse” to leave them out' : 'Your contributions are included again');
+    }
+  }, true)));
   document.querySelectorAll('#tab-core input, #tab-core select').forEach(el => el.addEventListener('input', updateAll));
   document.querySelectorAll('[data-who-tab]').forEach(b => b.addEventListener('click', () => {
     document.querySelectorAll('[data-who-tab]').forEach(x => x.classList.toggle('active', x === b));

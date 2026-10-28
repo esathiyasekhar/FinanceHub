@@ -3,6 +3,29 @@
 Every change gets a new version number (shown at the bottom of the sidebar). From 28 Oct 2026 versions run 1.1, 1.2, …
 Earlier versions (v2 – v11) and their data were deleted at the owner's request; this log starts with 1.1.
 
+## 1.12 — 2026-10-28
+**Wealth planner (compounding calculator)**
+- **Spouse inputs work as expected**: the spouse's (and your own) amounts could not be typed while the person was switched
+  off, so changes seemed to have no effect. The boxes stay editable now; typing an amount switches the person on, and a red
+  note warns when amounts are filled in but not counted.
+- **Include my contributions** now covers your lump sum too (it used to leave the lump sum in the plan).
+- **Year-by-year schedule**: the "Self SIP" / "Spouse SIP" columns showed the whole year's amount (e.g. ₹3,00,000 for
+  ₹25,000 a month). They are now **₹/month** (after step-ups, "× 6 mo" in a part year) and **added** in the year;
+  year 0 shows the lump sums. CSV export has the same columns.
+- Annual review: a last SIP year with extra months now counts as planned SIP when working out the SIP needed.
+- The spouse comparison says it uses plan figures; the manual explains how each number is worked out, with an example.
+- New engine checks (hand-worked example, step-ups, part years, self / spouse symmetry, goal and review solvers).
+
+**Deleting mails** (*Mail inbox*)
+- Handled mails are deleted **automatically after 3 days** (Reading rules; 0 = never): imported / already-in-the-Hub /
+  not-a-statement mails go to the mailbox's **Trash** and leave the list; alerts go to the Trash but stay in the Hub;
+  waiting items are never auto-deleted.
+- Automatic deletion applies to mails read from 1.12 on, counts the days from when a mail was handled, and waits until every
+  file of a mail is handled. Mails only ever go to the Trash (a mailbox without a Trash folder keeps them).
+- **Delete selected** and **Delete all on this tab** (the mails shown; files waiting for you are kept on the Statements tab).
+  The Hub checks each mail's Message-ID before deleting, and retries on the next check when the mailbox cannot be reached.
+  Deleted mails are never read again.
+
 ## 1.11 — 2026-10-28
 **Due dates in full** — card and EMI due dates now show weekday, day, month and year, e.g. *Fri, 15 Nov 2026*, with
   "in 5 days" / "2 days overdue" where there is room: Accounts (new **Next due** on every card), account pages, Home, Dues,

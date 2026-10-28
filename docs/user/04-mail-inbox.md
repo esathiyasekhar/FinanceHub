@@ -190,6 +190,21 @@ Each file under **Waiting for you** has three buttons:
 
 Mails without an attachment, such as debit, credit, UPI and card alerts, are kept under **Alerts**, encrypted. Click the text button next to an alert to read it. A later version of the Hub will turn these into provisional entries that the monthly statement then confirms.
 
+## Deleting mails
+
+Mails the Hub has handled can be deleted so the mailbox does not fill up. A deleted mail goes to the mailbox's own **Trash** (Gmail: *Trash*, Outlook: *Deleted Items*), where you can still recover it for about 30 days, and leaves the Hub's list. The Hub remembers only that it has read it, so it is never read again.
+
+**Automatically.** Under **Reading rules**, **Delete handled mails after (days)** is 3 by default; 0 switches it off. It applies to mails the Hub reads from version 1.12 on — mails read earlier are left alone. On each check, mails handled more than that many days ago are deleted (counted from when they were handled, so a file you import after it waited for you gets the full days too):
+
+- statements imported, files already in the Hub and mails that were not statements: moved to the Trash and removed from the list;
+- alerts: moved to the Trash, but kept in the Hub, because the kept text is the data;
+- mails **waiting for you**, mails from other senders and mails that failed the sender check are never deleted automatically;
+- a mail with several files is deleted only when every one of its files is handled.
+
+**By hand.** Tick mails in the list (the box in the header ticks them all) and click **Delete selected**, or click **Delete all on this tab**, which deletes the mails shown on that tab. On **Statements**, files waiting for you are kept; delete them on **Waiting for you**, where they are erased from the Hub too. On **Other senders** these are usually your personal mails — the Hub asks first.
+
+Before deleting, the Hub checks that the mail in the mailbox is still the same one it read; if not, it leaves it there. It only ever moves mails to the Trash: in a mailbox without a Trash folder nothing is deleted. In Gmail a mail in the Trash loses its labels (also the FinanceHub label). If the mailbox cannot be reached, the mails leave the list at once and are deleted from the mailbox on the next check. A mail that arrived in two of your mailboxes is deleted from the one it was read from.
+
 ## Privacy
 
 - The Hub never clicks anything in a mail and never opens links.

@@ -224,7 +224,7 @@
     const satAlloc = totalAlloc > 0 ? p.satAlloc / totalAlloc : 0.3;
 
     const maxYears = p.maxYears || 60;
-    const selfInitialLump = Number(p.selfLump || 0);
+    const selfInitialLump = p.selfInclude ? Number(p.selfLump || 0) : 0;   // "Include my contributions" covers the lump sum too (1.12)
     const spouseInitialLump = p.spouseInclude ? Number(p.spouseLump || 0) : 0;
     const totalLump = selfInitialLump + spouseInitialLump;
 
@@ -243,6 +243,8 @@
     const multipleInvested = new Float64Array(maxYears + 1);
     const selfContrib = new Float64Array(maxYears + 1);
     const spouseContrib = new Float64Array(maxYears + 1);
+    const selfMonthlyAmt = new Float64Array(maxYears + 1), spouseMonthlyAmt = new Float64Array(maxYears + 1);
+    const selfMonthsIn = new Array(maxYears + 1).fill(0), spouseMonthsIn = new Array(maxYears + 1).fill(0);
     const annualReturnsEarned = new Float64Array(maxYears + 1);
     const isActualYear = new Array(maxYears + 1).fill(false);
     const actualCoreRates = new Array(maxYears + 1).fill(null);
@@ -276,7 +278,10 @@
       let sMonths = 0;
       if (p.selfInclude) {
         sMonths = monthsIn(p.selfAddStop, p.selfAddStopMonths);
-        if (sMonths > 0) sCon = steppedMonthly(p.selfMonthly, yr, p.selfStepUpStop, p.selfStepUpMode, p.selfStepUp, p.selfStepUpAmt) * sMonths;
+        if (sMonths > 0) {
+          selfMonthlyAmt[yr] = steppedMonthly(p.selfMonthly, yr, p.selfStepUpStop, p.selfStepUpMode, p.selfStepUp, p.selfStepUpAmt);
+          sCon = selfMonthlyAmt[yr] * sMonths;
+        }
       }
       // Course-correction override: change ONLY future years' self SIP (past years already happened)
       if (p.selfFutureFromYear && yr >= p.selfFutureFromYear) {
@@ -284,9 +289,11 @@
           // Restart mode: flat monthly SIP from fromYear through the horizon
           sCon = yr <= p.horizon ? Number(p.selfFutureMonthly) * 12.0 : 0.0;
           sMonths = sCon > 0 ? 12 : 0;
+          selfMonthlyAmt[yr] = sCon > 0 ? Number(p.selfFutureMonthly) : 0;
         } else if (p.selfFutureFactor !== undefined && p.selfFutureFactor !== null) {
           // Scale mode: keep the planned step-up path, scaled by a factor
           sCon = sCon * Number(p.selfFutureFactor);
+          selfMonthlyAmt[yr] = selfMonthlyAmt[yr] * Number(p.selfFutureFactor);
         }
       }
       selfContrib[yr] = sCon;
@@ -296,8 +303,12 @@
       let spMonths = 0;
       if (p.spouseInclude) {
         spMonths = monthsIn(p.spouseAddStop, p.spouseAddStopMonths);
-        if (spMonths > 0) spCon = steppedMonthly(p.spouseMonthly, yr, p.spouseStepUpStop, p.spouseStepUpMode, p.spouseStepUp, p.spouseStepUpAmt) * spMonths;
+        if (spMonths > 0) {
+          spouseMonthlyAmt[yr] = steppedMonthly(p.spouseMonthly, yr, p.spouseStepUpStop, p.spouseStepUpMode, p.spouseStepUp, p.spouseStepUpAmt);
+          spCon = spouseMonthlyAmt[yr] * spMonths;
+        }
       }
+      selfMonthsIn[yr] = sCon > 0 ? sMonths : 0; spouseMonthsIn[yr] = spCon > 0 ? spMonths : 0;
       let sW = weightFor(sMonths), spW = weightFor(spMonths);
 
       const act = actuals ? actuals[yr] : null;
@@ -307,6 +318,7 @@
         const planned = sCon + spCon;
         if (planned > 0) { sCon = inv * (sCon / planned); spCon = inv * (spCon / planned); }
         else { sCon = inv; spCon = 0; }
+        selfMonthlyAmt[yr] = selfMonthsIn[yr] ? sCon / selfMonthsIn[yr] : 0; spouseMonthlyAmt[yr] = spouseMonthsIn[yr] ? spCon / spouseMonthsIn[yr] : 0;
         sW = 0.5; spW = 0.5;
       }
       selfContrib[yr] = sCon;
@@ -494,6 +506,9 @@
         year: yr,
         selfContrib: selfContrib[yr],
         spouseContrib: spouseContrib[yr],
+        selfMonthly: selfMonthlyAmt[yr], selfMonths: selfMonthsIn[yr],       // 1.12: the monthly SIP behind each year's total
+        spouseMonthly: spouseMonthlyAmt[yr], spouseMonths: spouseMonthsIn[yr],
+        selfLump: yr === 0 ? selfInitialLump : 0, spouseLump: yr === 0 ? spouseInitialLump : 0,
         totalContrib: selfContrib[yr] + spouseContrib[yr],
         coreOpen: coreOpen[yr],
         coreAdd: coreAdd[yr],
@@ -670,8 +685,10 @@
    * Returns { sip, unreachable }.
    */
   function solveRequiredSIP(target, plan) {
+    // switching self on for the SIP must not bring back a lump sum the user left out
+    const selfLump = plan.selfInclude === false ? 0 : plan.selfLump;
     const corpusWithSIP = (m) => calculateSchedule(Object.assign({}, plan, {
-      selfInclude: true, selfMonthly: m
+      selfInclude: true, selfMonthly: m, selfLump: selfLump
     })).totalCorpus;
     if (corpusWithSIP(0) >= target) return { sip: 0, unreachable: false };
     let hi = Math.max(10000, target / (Math.max(1, plan.horizon) * 12));
@@ -727,7 +744,7 @@
     const sipUnreachable = sipRes.unreachable;
 
     // 3. Required blended return (keeping SIP & alpha spread)
-    const baseInitialLump = Number(baseParams.selfLump || 0) +
+    const baseInitialLump = (baseParams.selfInclude !== false ? Number(baseParams.selfLump || 0) : 0) +
                             (baseParams.spouseInclude ? Number(baseParams.spouseLump || 0) : 0);
     const baseMonthly = (baseParams.selfInclude ? Number(baseParams.selfMonthly || 0) : 0) +
                         (baseParams.spouseInclude ? Number(baseParams.spouseMonthly || 0) : 0);
@@ -787,7 +804,9 @@
 
     // Planned self monthly SIP in year y (before any correction)
     const plannedSelfMonthlyIn = (y) => {
-      if (!baseParams.selfInclude || y > baseParams.selfAddStop) return 0;
+      const extraMonths = Math.max(0, Math.min(11, Math.round(Number(baseParams.selfAddStopMonths) || 0)));
+      if (!baseParams.selfInclude) return 0;
+      if (y > baseParams.selfAddStop && !(y === baseParams.selfAddStop + 1 && extraMonths > 0)) return 0;
       return steppedMonthly(baseParams.selfMonthly, y, baseParams.selfStepUpStop,
         baseParams.selfStepUpMode, baseParams.selfStepUp, baseParams.selfStepUpAmt);
     };

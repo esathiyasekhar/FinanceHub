@@ -160,6 +160,10 @@
         <label class="form-check-label" for="mEn" style="font-size:.82rem">Check automatically while the Hub is open in your browser</label></div>
       <div class="form-check"><input class="form-check-input" type="checkbox" name="auto_import" id="mAuto" {{ 'checked' if s.auto_import == '1' }}>
         <label class="form-check-label" for="mAuto" style="font-size:.82rem">Import automatically when every check passes</label></div></div>
+    <div class="col-md-4"><label class="form-label">Delete handled mails after (days)</label>
+      <input name="delete_after" type="number" min="0" max="365" class="form-control form-control-sm" value="{{ s.delete_after or '0' }}">
+      <div class="muted" style="font-size:.7rem">Imported, already-in-the-Hub and not-a-statement mails move to the mailbox's Trash and leave this list;
+        alerts move to the Trash but stay here. Mails waiting for you are never deleted automatically. 0 = never.</div></div>
     <div class="col-12"><label class="form-label">My forwarding addresses (optional)</label>
       <textarea name="forwarders" rows="3" class="form-control form-control-sm" style="font-family:monospace;font-size:.76rem" placeholder="me@gmail.com">{{ s.forwarders }}</textarea>
       <div class="muted" style="font-size:.7rem">Mails you forward by hand from these addresses are read too, but always wait for you —
@@ -180,11 +184,27 @@
 {% if tab == 'ignored' %}<div class="muted mb-2" style="font-size:.78rem"><i class="bi bi-info-circle me-1"></i>Mails from senders not on your list are only listed (never downloaded).
   <b>Failed sender check</b> means the mail claims a bank's address but the mail server could not confirm it — treat it as suspicious.</div>{% endif %}
 
+<form method="post" action="{{ url_for('mail_delete') }}" id="mailDel" class="d-flex flex-wrap gap-2 align-items-center mb-2"
+      onsubmit="return confirm(this.dataset.msg || 'Delete?')">
+  <input type="hidden" name="tab" value="{{ tab }}"><input type="hidden" name="scope" id="mailDelScope" value="selected">
+  <button class="btn btn-sm btn-soft text-danger" data-msg="Delete the ticked mails? They move to the mailbox's Trash (recoverable there for about 30 days) and leave this list."
+     onclick="document.getElementById('mailDelScope').value='selected';this.form.dataset.msg=this.dataset.msg">
+    <i class="bi bi-trash me-1"></i>Delete selected</button>
+  {% set delmsg = {"ignored": "Delete ALL mails from other senders shown here? These are usually personal mails - they move to the mailbox's Trash.",
+                   "review": "Delete ALL files waiting for you? They are erased from the Hub and the mails move to the mailbox's Trash.",
+                   "alerts": "Delete ALL alerts shown here? Their text is erased from the Hub and the mails move to the mailbox's Trash."}.get(tab,
+                   "Delete ALL handled mails shown here? They move to the mailbox's Trash and leave this list. Files waiting for you are kept.") %}
+  {% if items %}<button class="btn btn-sm btn-soft text-danger" data-msg="{{ delmsg }}"
+     onclick="document.getElementById('mailDelScope').value='all';this.form.dataset.msg=this.dataset.msg">
+    <i class="bi bi-trash3 me-1"></i>Delete all on this tab</button>{% endif %}
+  <span class="muted" style="font-size:.74rem">{% if s.delete_after and s.delete_after != '0' %}Handled mails are deleted automatically after {{ s.delete_after }} day{{ 's' if s.delete_after != '1' }} (Reading rules).{% else %}Automatic deletion is off (Reading rules).{% endif %}</span>
+</form>
 <div class="hub-card p-0" style="overflow:hidden">
   <div class="table-responsive"><table class="table table-sm align-middle mb-0">
-    <thead><tr><th>Received</th><th>From</th><th>Mail / file</th><th>Status</th><th class="text-end"></th></tr></thead>
+    <thead><tr><th style="width:30px"><input type="checkbox" class="form-check-input" id="mailAll" title="Tick all"></th><th>Received</th><th>From</th><th>Mail / file</th><th>Status</th><th class="text-end"></th></tr></thead>
     <tbody>{% for it in items %}{% set stl = STATUS.get(it.status, (it.status, 'slate')) %}
       <tr>
+        <td><input type="checkbox" class="form-check-input mail-pick" name="item" value="{{ it.id }}" form="mailDel"></td>
         <td class="text-nowrap" style="font-size:.8rem">{{ it.received|short_date if it.received }}</td>
         <td style="font-size:.78rem;word-break:break-all">{{ it.from_addr or it.from_domain }}{% if it.via %}<div class="muted" style="font-size:.68rem">forwarded by you</div>{% endif %}
           {% if many and it.box_name %}<div class="muted" style="font-size:.68rem"><i class="bi bi-inbox"></i> {{ it.box_name }}</div>{% endif %}</td>
@@ -194,7 +214,9 @@
         <td style="font-size:.78rem"><span class="chip tone-{{ stl[1] }}">{{ stl[0] }}</span>
           {% if it.note %}<div class="muted" style="font-size:.7rem;max-width:300px">{{ it.note }}</div>{% endif %}
           {% if it.result %}<div style="font-size:.7rem;max-width:300px;color:var(--amount-in)">{{ it.result }}</div>{% endif %}
-          {% if it.status == 'rejected' and it.auth_note %}<div class="muted" style="font-size:.7rem">{{ it.auth_note }}</div>{% endif %}</td>
+          {% if it.status == 'rejected' and it.auth_note %}<div class="muted" style="font-size:.7rem">{{ it.auth_note }}</div>{% endif %}
+          {% if it.trash == 'done' %}<div class="muted" style="font-size:.7rem"><i class="bi bi-trash"></i> deleted from the mailbox — kept here</div>
+          {% elif it.trash == 'pending' %}<div class="muted" style="font-size:.7rem"><i class="bi bi-hourglass"></i> to be deleted from the mailbox{% if it.trash_note %} ({{ it.trash_note }}){% endif %}</div>{% endif %}</td>
         <td class="text-end text-nowrap">
           {% if it.status == 'review' and it.blob %}
             <form method="post" action="{{ url_for('mail_review', iid=it.id) }}" class="d-inline"><button class="btn btn-sm btn-primary"><i class="bi bi-eye me-1"></i>Review</button></form>
@@ -209,8 +231,8 @@
             <button class="btn btn-sm btn-soft" onclick="showAlert({{ it.id }}, this)"><i class="bi bi-card-text"></i></button>
           {% endif %}
         </td></tr>
-      {% if it.status == 'alert' %}<tr class="d-none" id="al-{{ it.id }}"><td colspan="5"><pre class="mb-0" style="white-space:pre-wrap;font-size:.74rem;max-height:240px;overflow:auto"></pre></td></tr>{% endif %}
-    {% else %}<tr><td colspan="5"><div class="empty"><i class="bi bi-envelope-open"></i>{{ 'Nothing here yet.' if configured else 'Set up the mailbox above to start.' }}</div></td></tr>{% endfor %}</tbody>
+      {% if it.status == 'alert' %}<tr class="d-none" id="al-{{ it.id }}"><td colspan="6"><pre class="mb-0" style="white-space:pre-wrap;font-size:.74rem;max-height:240px;overflow:auto"></pre></td></tr>{% endif %}
+    {% else %}<tr><td colspan="6"><div class="empty"><i class="bi bi-envelope-open"></i>{{ 'Nothing here yet.' if configured else 'Set up the mailbox above to start.' }}</div></td></tr>{% endfor %}</tbody>
   </table></div>
 </div>
 {% if items and tab in ('statements', 'ignored') %}
@@ -266,6 +288,8 @@ function showAlert(id, btn) {
     if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'action'; form.appendChild(h); }
     h.value = act;
   });
+  const mailAll = document.getElementById('mailAll');
+  if (mailAll) mailAll.addEventListener('change', () => document.querySelectorAll('.mail-pick').forEach(c => c.checked = mailAll.checked));
 })();
 </script>
 {% endblock %}
