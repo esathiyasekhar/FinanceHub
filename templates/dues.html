@@ -65,7 +65,7 @@
       <div class="list-row k-{{ e.kind }}">
         <span class="ri"><i class="bi {{ e.icon }}"></i></span>
         <div class="min-w-0"><div style="font-size:.84rem;font-weight:600" class="text-truncate">{{ e.title }}</div>
-          <div class="muted" style="font-size:.72rem">{{ e.date.strftime('%a %d %b') }} · {{ e.status }}{% if e.min %} · min {{ e.min|inr }}{% endif %}</div></div>
+          <div class="muted" style="font-size:.72rem">{{ e.date|full_date }} ({{ e.date|due_in }}) · {{ e.status }}{% if e.min %} · min {{ e.min|inr }}{% endif %}</div></div>
         <b class="ms-auto num {{ 'amount-credit' if e.inflow else ('' if e.cash else 'muted') }}">{{ e.amount|inr if e.amount is not none else '—' }}</b>
       </div>
       {% else %}<div class="empty"><i class="bi bi-calendar-check"></i>Nothing due in the next 30 days.</div>{% endfor %}

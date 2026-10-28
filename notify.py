@@ -141,7 +141,7 @@ def _rows_html(items, amounts):
     for e in items:
         amt = _money(e['amount']) if amounts else ('—' if e['amount'] is None else 'see the Hub')
         extra = f"<div style='color:#69728f;font-size:12px'>minimum {_money(e['min'])}</div>" if amounts and e.get('min') else ''
-        tr.append(f"<tr><td style='padding:6px 8px;border-bottom:1px solid #e2e6f2;white-space:nowrap'>{e['date']:%a %d %b}</td>"
+        tr.append(f"<tr><td style='padding:6px 8px;border-bottom:1px solid #e2e6f2;white-space:nowrap'>{e['date']:%a, %d %b %Y}</td>"
                   f"<td style='padding:6px 8px;border-bottom:1px solid #e2e6f2'>{escape(e['title'])}"
                   f"<div style='color:#69728f;font-size:12px'>{escape(KIND_LABEL.get(e['kind'], e['kind']))}"
                   f"{' · ' + escape(e['status']) if e['status'] and e['status'] not in ('due',) else ''}</div></td>"
@@ -152,7 +152,7 @@ def _rows_html(items, amounts):
 
 
 def _rows_text(items, amounts):
-    return '\n'.join(f"  {e['date']:%a %d %b}  {e['title']}  ({KIND_LABEL.get(e['kind'], e['kind'])})"
+    return '\n'.join(f"  {e['date']:%a, %d %b %Y}  {e['title']}  ({KIND_LABEL.get(e['kind'], e['kind'])})"
                      + (f"  {_money(e['amount'])}" if amounts else '') for e in items)
 
 
@@ -174,12 +174,12 @@ def _wrap(title, inner, built):
 def reminder_mail(due, items, amounts, built):
     pay = [e for e in items if not e['inflow']]
     total, unknown = _total(pay)
-    title = f"Due tomorrow — {due:%A %d %b}"
+    title = f"Due tomorrow — {due:%A, %d %b %Y}"
     lead = (f"<p>{len(pay)} payment{'s' if len(pay) != 1 else ''} fall{'s' if len(pay) == 1 else ''} due tomorrow"
             + (f", <b>{_money(total)}</b> in all" + (' (plus amounts not known yet)' if unknown else '') if amounts else '') + '.</p>')
     html = _wrap(title, lead + _rows_html(pay, amounts), built)
     text = f"Finance Hub — {title}\n\n{_rows_text(pay, amounts)}\n" + (f"\nTotal: {_money(total)}\n" if amounts else '')
-    return f"Finance Hub: payments due tomorrow ({due:%d %b})", html, text
+    return f"Finance Hub: payments due tomorrow ({due:%a, %d %b %Y})", html, text
 
 
 def weekly_mail(sunday, this_week, next_week, late, amounts, built, waiting=()):

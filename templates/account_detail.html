@@ -71,9 +71,10 @@
       <div class="list-row"><span class="muted">Credit limit</span><b class="ms-auto num">{{ a.limit|inr if a.limit else '—' }}</b></div>
       <div class="list-row"><span class="muted">Available</span><b class="ms-auto num">{{ a.available|inr if a.available is not none else '—' }}</b></div>
       <div class="list-row"><span class="muted">Statement day / due day</span><b class="ms-auto">{{ a.billing_day_eff or '—' }} / {{ a.due_day_eff or '—' }}</b></div>
+      {% if a.next_due and not (a.bill and a.bill.due_date == a.next_due) %}<div class="list-row"><span class="muted">Next due</span><b class="ms-auto">{{ a.next_due|full_date }} <span class="muted" style="font-weight:400">({{ a.next_due|due_in }})</span></b></div>{% endif %}
       {% if a.bill %}
       <div class="list-row"><span class="muted">Last bill</span><b class="ms-auto num">{{ a.bill.due|inr }}</b></div>
-      <div class="list-row"><span class="muted">Due date</span><b class="ms-auto">{{ a.bill.due_date.strftime('%d %b %Y') if a.bill.due_date else '—' }}</b></div>
+      <div class="list-row"><span class="muted">Due date</span><b class="ms-auto">{% if a.bill.due_date %}{{ a.bill.due_date|full_date }} <span class="muted" style="font-weight:400">({{ a.bill.due_date|due_in }})</span>{% else %}—{% endif %}</b></div>
       <div class="list-row"><span class="muted">Paid since statement</span><b class="ms-auto num">{{ a.bill.paid|inr }}</b></div>
       <div class="list-row"><span class="muted">Status</span><span class="ms-auto chip {{ {'paid':'tone-green','due':'tone-amber','part':'tone-blue','overdue':'tone-red','check':'tone-amber'}[a.bill.status] }}">{{ {'paid':'Paid','due':'Due','part':'Part paid','overdue':'Overdue','check':'Not seen'}[a.bill.status] }}</span></div>
       {% endif %}
@@ -92,7 +93,7 @@
         <div class="muted" style="font-size:.76rem">{{ l.emi_amount|inr }}{{ '' if l.bullet else '/mo' }} · {{ l.emis_paid }}/{{ l.total_emis }} · {{ ('%g'|format(l.interest_rate) ~ '%') if l.interest_rate else '' }}</div>
         {% if l.total_emis and not l.bullet %}<div class="bar mt-1"><span style="width:{{ l.progress }}%"></span></div>{% endif %}
         <div class="d-flex mt-1" style="font-size:.76rem"><span class="muted">Outstanding</span><b class="ms-auto num amount-debit">{{ l.outstanding_now|inr }}</b></div>
-        {% if l.next_due %}<div class="d-flex" style="font-size:.76rem"><span class="muted">{{ 'Due' if l.bullet else 'Next EMI' }}</span><b class="ms-auto">{{ l.next_due.strftime('%d %b %Y') }}</b></div>{% endif %}
+        {% if l.next_due %}<div class="d-flex" style="font-size:.76rem"><span class="muted">{{ 'Due' if l.bullet else 'Next EMI' }}</span><b class="ms-auto">{{ l.next_due|full_date }} <span class="muted" style="font-weight:400">({{ l.next_due|due_in }})</span></b></div>{% endif %}
       </div>
       {% endfor %}
       <a href="{{ url_for('tools_page') }}#prepay" class="small"><i class="bi bi-calculator me-1"></i>What if I prepay?</a>

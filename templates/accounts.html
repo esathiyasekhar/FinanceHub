@@ -96,13 +96,14 @@
     {% if bill %}
     <div class="soft-box mt-2 d-flex align-items-center gap-2 status-{{ bill.status }}" style="font-size:.78rem">
       <span class="chip">{{ {'paid':'Paid','due':'Due','part':'Part paid','overdue':'Overdue','check':'Not seen'}[bill.status] }}</span>
-      <span class="num">{{ bill.due|inr }}{% if bill.due_date %} · <b>{{ bill.due_date.strftime('%d %b') }}</b>{% endif %}</span>
+      <span class="num">{{ bill.due|inr }}{% if bill.due_date %} · due <b>{{ bill.due_date|full_date }}</b>{% endif %}</span>
       {% if bill.status in ('due','part','overdue','check') %}<span class="ms-auto muted num">min {{ bill.min|inr }}</span>{% endif %}
     </div>
     {% endif %}
     <div class="kv">
       <div><span>Statement day</span><b>{{ a.billing_day_eff or '—' }}</b></div>
-      <div><span>Due day</span><b>{{ a.due_day_eff or '—' }}{% if a.grace %} <small class="muted">({{ a.grace }}d)</small>{% endif %}</b></div>
+      <div><span>Next due</span><b>{% if a.next_due %}{{ a.next_due|full_date }} <small class="muted" style="font-weight:400">({{ a.next_due|due_in }})</small>{% else %}—{% endif %}</b></div>
+      <div><span>Due day</span><b>{{ a.due_day_eff or '—' }}{% if a.grace %} <small class="muted">({{ a.grace }} days after the statement)</small>{% endif %}</b></div>
       <div><span>Spent · {{ fy_label }}</span><b class="amount-debit">{{ a.stat.out|inr }}</b></div>
       <div><span>EMIs on card</span><b>{% set act = a.linked|selectattr('status','equalto','active')|list %}{% if act %}{{ act|length }} · {{ a.emi_out|inr }}{% else %}—{% endif %}</b></div>
     </div>
@@ -132,7 +133,7 @@
   <div class="kv">
     <div><span>{{ 'Repayment' if l and l.bullet else 'EMI' }}</span><b>{{ (l.emi_amount|inr) if l and l.emi_amount else '—' }}</b></div>
     <div><span>Rate</span><b>{{ ('%g'|format(a.rate_eff) ~ '%') if a.rate_eff else '—' }}</b></div>
-    <div><span>{{ 'Due on' if l and l.bullet else 'Next EMI' }}</span><b>{{ l.next_due.strftime('%d %b %Y') if l and l.next_due else '—' }}</b></div>
+    <div><span>{{ 'Due on' if l and l.bullet else 'Next EMI' }}</span><b>{% if l and l.next_due %}{{ l.next_due|full_date }} <span class="muted" style="font-weight:400">({{ l.next_due|due_in }})</span>{% else %}—{% endif %}</b></div>
     <div><span>Ends</span><b>{{ l.end.strftime('%b %Y') if l and l.end else '—' }}</b></div>
   </div>
   {{ acts(a, 'loan') }}
@@ -262,7 +263,7 @@
             <div class="amt">{{ a.value|inr }}<small class="{{ 'amount-credit' if a.pnl >= 0 else 'amount-debit' }}">{{ '+' if a.pnl >= 0 }}{{ a.pnl|inr }}</small></div>
           {% else %}
             <div class="min-w-0"><a href="{{ url_for('account_detail', acc_id=a.id) }}">{{ a.name }}</a>
-              <div class="muted text-truncate" style="font-size:.72rem">{{ a.subtype or '' }}{% if a.last4 %} · ····{{ a.last4 }}{% endif %}{% if k == 'card' and a.bill and a.bill.status != 'paid' and a.bill.due_date %} · due {{ a.bill.due_date.strftime('%d %b') }}{% endif %}</div></div>
+              <div class="muted text-truncate" style="font-size:.72rem">{{ a.subtype or '' }}{% if a.last4 %} · ····{{ a.last4 }}{% endif %}{% if k == 'card' and a.bill and a.bill.status != 'paid' and a.bill.due_date %} · due {{ a.bill.due_date|full_date }}{% endif %}</div></div>
             {% set v = a.outstanding if k in ('card','loan') else a.balance %}
             <div class="amt {{ 'amount-debit' if not K.asset and v else '' }}">{{ money(v) }}<small>{% if k == 'card' and a.util is not none %}{{ '%.0f'|format(a.util) }}% used{% else %}{{ a.as_of|short_date if a.as_of else '' }}{% endif %}</small></div>
           {% endif %}

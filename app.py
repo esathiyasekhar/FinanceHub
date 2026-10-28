@@ -84,6 +84,34 @@ def short_date(value):
         return value
 
 
+def _as_date(value):
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    return datetime.strptime(str(value)[:10], '%Y-%m-%d').date()
+
+
+@app.template_filter('full_date')
+def full_date(value):
+    """1.11: due dates in full — 'Fri, 15 Nov 2026'."""
+    try:
+        return _as_date(value).strftime('%a, %d %b %Y')
+    except Exception:
+        return value or ''
+
+
+@app.template_filter('due_in')
+def due_in(value):
+    """'today', 'tomorrow', 'in 5 days', '3 days overdue' (1.11)."""
+    try:
+        n = (_as_date(value) - date.today()).days
+    except Exception:
+        return ''
+    return ('today' if n == 0 else 'tomorrow' if n == 1 else f'in {n} days' if n > 1 else
+            ('1 day overdue' if n == -1 else f'{-n} days overdue'))
+
+
 @app.template_filter('month_name')
 def month_name(value):
     try:

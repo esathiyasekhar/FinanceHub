@@ -246,7 +246,7 @@ def alerts(con, b, upcoming, cash):
     if unseen:
         add('unseen:' + ','.join(f"{a['id']}{a['bill']['due_date']}" for a in unseen), 'warning', 'bi-question-diamond',
             f"{len(unseen)} card bill{'s' if len(unseen) > 1 else ''} past the due date — payment not seen yet",
-            '; '.join(f"{a['name']} ₹{a['bill']['left']:,.0f} (due {a['bill']['due_date'].strftime('%d %b')})" for a in unseen[:4])
+            '; '.join(f"{a['name']} ₹{a['bill']['left']:,.0f} (due {a['bill']['due_date'].strftime('%a, %d %b %Y')})" for a in unseen[:4])
             + '. Add the next card or bank statement to confirm they were paid.', url_for('import_page'), 'Add Statements')
     for a in b['groups']['card']:
         bill = a.get('bill')
@@ -260,7 +260,7 @@ def alerts(con, b, upcoming, cash):
                 url_for('account_detail', acc_id=a['id']))
         elif days <= 5:
             add(key, 'warning', 'bi-alarm', f"{a['name']} bill due {'today' if days == 0 else f'in {days} days'}",
-                f"₹{bill['left']:,.0f} to pay by {bill['due_date'].strftime('%d %b')}.", url_for('account_detail', acc_id=a['id']))
+                f"₹{bill['left']:,.0f} to pay by {bill['due_date'].strftime('%a, %d %b %Y')}.", url_for('account_detail', acc_id=a['id']))
     if cash['need'] > cash['have'] and cash['need'] > 0:
         add(f"cash:{today.strftime('%Y-%m')}", 'danger', 'bi-droplet-half', 'Bank balance short of the next 30 days’ dues',
             f"Dues ₹{cash['need']:,.0f} vs ₹{cash['have']:,.0f} in bank accounts — a gap of ₹{cash['need'] - cash['have']:,.0f}"
@@ -296,11 +296,11 @@ def alerts(con, b, upcoming, cash):
                 url_for('budgets_page'), 'Budgets')
     for l in b['loans']:
         if l.get('status') == 'active' and l['bullet'] and l['next_due'] and (l['next_due'] - today).days < 0:
-            add(f"bullet-past:{l['id']}:{l['next_due']}", 'warning', 'bi-hourglass-bottom', f"{l['name']} was due on {l['next_due'].strftime('%d %b %Y')}",
+            add(f"bullet-past:{l['id']}:{l['next_due']}", 'warning', 'bi-hourglass-bottom', f"{l['name']} was due on {l['next_due'].strftime('%a, %d %b %Y')}",
                 f"About ₹{l['outstanding_now']:,.0f} outstanding. If it was renewed or closed, update the loan (or add the latest statement).",
                 url_for('accounts', tab='loan'), 'Loans')
         if l.get('status') == 'active' and l['bullet'] and l['next_due'] and 0 <= (l['next_due'] - today).days <= 60:
-            add(f"bullet:{l['id']}", 'warning', 'bi-hourglass-split', f"{l['name']} falls due on {l['next_due'].strftime('%d %b %Y')}",
+            add(f"bullet:{l['id']}", 'warning', 'bi-hourglass-split', f"{l['name']} falls due on {l['next_due'].strftime('%a, %d %b %Y')}",
                 f"Bullet repayment of about ₹{l['outstanding_now']:,.0f}.", url_for('accounts', tab='loan'), 'Loans')
     for a in b['groups']['deposit']:
         if a['status'] == 'active' and a.get('days_to_maturity') is not None and 0 <= a['days_to_maturity'] <= 30:

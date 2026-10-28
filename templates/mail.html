@@ -108,6 +108,48 @@
     A mail that reaches more than one of these mailboxes is read only once.</div>
 </div>
 
+<div class="hub-card mb-3" id="senders">
+  <div class="card-head flex-wrap gap-2"><h6 class="mb-0"><i class="bi bi-person-check me-2 text-primary"></i>Senders to read</h6>
+    <span class="muted" style="font-size:.76rem">{{ snd_on }} read{% if snd_addr %} · {{ snd_addr }} exact address{{ 'es' if snd_addr != 1 }}{% endif %}{% if snd|length > snd_on %} · {{ snd|length - snd_on }} paused{% endif %}</span></div>
+  <div class="muted mb-2" style="font-size:.76rem">Only mails from these senders are opened; every other mail is just listed under <b>Other senders</b>.
+    Add an <b>exact address</b> (statements@bank.com) to read only that sender, or a <b>domain</b> (bank.com) to read every address of that bank,
+    including its sub-domains. Untick to pause a sender without deleting it.</div>
+  <form method="post" action="{{ url_for('mail_senders') }}" class="d-flex flex-wrap gap-2 mb-2" autocomplete="off">
+    <input type="hidden" name="action" value="add"><input type="hidden" name="tab" value="{{ tab }}">
+    <input name="new" class="form-control form-control-sm" style="max-width:420px" placeholder="e.g. statements@sbicard.com, estatement@hdfcbank.net">
+    <button class="btn btn-sm btn-primary"><i class="bi bi-plus-lg me-1"></i>Add</button>
+    <input id="sndFind" class="form-control form-control-sm ms-auto" style="max-width:240px" placeholder="Search the list…">
+  </form>
+  <form method="post" action="{{ url_for('mail_senders') }}" id="sndForm">
+    <input type="hidden" name="tab" value="{{ tab }}">
+    <div class="d-flex flex-wrap gap-1 mb-2" style="font-size:.78rem">
+      <button class="btn btn-sm btn-soft" name="action" value="pause" title="Stop reading the ticked senders"><i class="bi bi-pause me-1"></i>Pause ticked</button>
+      <button class="btn btn-sm btn-soft" name="action" value="resume" title="Read the ticked senders again"><i class="bi bi-play me-1"></i>Resume ticked</button>
+      <button class="btn btn-sm btn-soft text-danger" name="action" value="delete" onclick="return confirm('Delete the ticked senders from the list?')"><i class="bi bi-trash me-1"></i>Delete ticked</button>
+      <span class="ms-auto"></span>
+      {% if snd_addr %}<button class="btn btn-sm btn-soft" name="action" value="pause_domains" title="Pause every domain entry, so only the exact addresses are read">Read only the exact addresses</button>{% endif %}
+      {% if snd|length > snd_on %}<button class="btn btn-sm btn-soft" name="action" value="delete_paused" onclick="return confirm('Delete every paused sender?')">Delete paused</button>{% endif %}
+      <button class="btn btn-sm btn-soft" name="action" value="defaults" title="Put the built-in bank, card, broker and depository domains back">Built-in list</button>
+    </div>
+    <div style="max-height:320px;overflow:auto;border:1px solid var(--border);border-radius:.6rem">
+      <table class="table table-sm align-middle mb-0" id="sndTable">
+        <thead><tr><th style="width:34px"><input type="checkbox" class="form-check-input" id="sndAll" title="Tick all shown"></th>
+          <th>Sender</th><th>Type</th><th class="text-end">Mails seen</th><th>Status</th><th></th></tr></thead>
+        <tbody>{% for r in snd %}
+          <tr data-e="{{ r.entry }}"{% if not r.on %} style="opacity:.6"{% endif %}>
+            <td><input type="checkbox" class="form-check-input snd-pick" name="entry" value="{{ r.entry }}"></td>
+            <td style="font-family:monospace;font-size:.78rem">{{ r.entry }}</td>
+            <td><span class="chip tone-{{ 'indigo' if r.addr else 'slate' }}">{{ 'exact address' if r.addr else 'domain' }}</span></td>
+            <td class="text-end muted" style="font-size:.78rem">{{ r.n or '' }}</td>
+            <td style="font-size:.78rem">{{ 'read' if r.on else 'paused' }}</td>
+            <td class="text-end text-nowrap">
+              <button class="btn btn-sm btn-soft py-0" name="one" value="{{ 'pause' if r.on else 'resume' }}|{{ r.entry }}" title="{{ 'Pause' if r.on else 'Resume' }}"><i class="bi bi-{{ 'pause' if r.on else 'play' }}"></i></button>
+              <button class="btn btn-sm btn-soft py-0 text-danger" name="one" value="delete|{{ r.entry }}" title="Delete" onclick="return confirm('Delete this sender from the list?')"><i class="bi bi-trash"></i></button></td>
+          </tr>{% else %}<tr><td colspan="6"><div class="empty">No senders yet — add one above, or click <b>Built-in list</b>.</div></td></tr>{% endfor %}
+        </tbody></table></div>
+  </form>
+</div>
+
 <details class="hub-card mb-3">
   <summary style="cursor:pointer;font-weight:700;font-size:.9rem"><i class="bi bi-sliders me-2 text-primary"></i>Reading rules (all mailboxes)
     <span class="chip tone-{{ 'green' if s.enabled == '1' else 'slate' }} ms-2">{{ 'automatic every ' ~ s.interval ~ ' min' if s.enabled == '1' else 'only when you press Check now' }}</span></summary>
@@ -118,10 +160,7 @@
         <label class="form-check-label" for="mEn" style="font-size:.82rem">Check automatically while the Hub is open in your browser</label></div>
       <div class="form-check"><input class="form-check-input" type="checkbox" name="auto_import" id="mAuto" {{ 'checked' if s.auto_import == '1' }}>
         <label class="form-check-label" for="mAuto" style="font-size:.82rem">Import automatically when every check passes</label></div></div>
-    <div class="col-md-6"><label class="form-label">Senders to read (domains, one per line)</label>
-      <textarea name="senders" rows="6" class="form-control form-control-sm" style="font-family:monospace;font-size:.76rem">{{ s.senders }}</textarea>
-      <div class="muted" style="font-size:.7rem">A domain also covers its sub-domains (bank.in covers every regulated bank's .bank.in address).</div></div>
-    <div class="col-md-6"><label class="form-label">My forwarding addresses (optional)</label>
+    <div class="col-12"><label class="form-label">My forwarding addresses (optional)</label>
       <textarea name="forwarders" rows="3" class="form-control form-control-sm" style="font-family:monospace;font-size:.76rem" placeholder="me@gmail.com">{{ s.forwarders }}</textarea>
       <div class="muted" style="font-size:.7rem">Mails you forward by hand from these addresses are read too, but always wait for you —
         the original sender cannot be verified after a manual forward. Filter forwarding keeps the original sender and is verified.</div></div>
@@ -147,7 +186,7 @@
     <tbody>{% for it in items %}{% set stl = STATUS.get(it.status, (it.status, 'slate')) %}
       <tr>
         <td class="text-nowrap" style="font-size:.8rem">{{ it.received|short_date if it.received }}</td>
-        <td style="font-size:.78rem">{{ it.from_domain }}{% if it.via %}<div class="muted" style="font-size:.68rem">forwarded by you</div>{% endif %}
+        <td style="font-size:.78rem;word-break:break-all">{{ it.from_addr or it.from_domain }}{% if it.via %}<div class="muted" style="font-size:.68rem">forwarded by you</div>{% endif %}
           {% if many and it.box_name %}<div class="muted" style="font-size:.68rem"><i class="bi bi-inbox"></i> {{ it.box_name }}</div>{% endif %}</td>
         <td style="font-size:.8rem;max-width:380px"><div class="text-truncate" title="{{ it.subject }}">{{ it.subject or '(no subject)' }}</div>
           {% if it.attachment %}<div class="muted text-truncate" style="font-size:.72rem"><i class="bi bi-paperclip"></i>{{ it.attachment }}
@@ -164,7 +203,8 @@
               <button class="btn btn-sm btn-soft text-danger" name="action" value="dismiss" title="Not needed — erase the stored copy"><i class="bi bi-x-lg"></i></button></form>
           {% elif it.status == 'ignored' %}
             <form method="post" action="{{ url_for('mail_item', iid=it.id) }}" class="d-inline"><input type="hidden" name="tab" value="{{ tab }}">
-              <button class="btn btn-sm btn-soft" name="action" value="allow" title="Add {{ it.from_domain }} to the senders to read"><i class="bi bi-plus-lg me-1"></i>Read this sender</button></form>
+              {% if it.from_addr %}<button class="btn btn-sm btn-soft" name="action" value="allow_addr" title="Read mails from {{ it.from_addr }} only"><i class="bi bi-plus-lg me-1"></i>Read this address</button>{% endif %}
+              <button class="btn btn-sm btn-soft" name="action" value="allow" title="Read every address of {{ it.from_domain }}"><i class="bi bi-plus-lg me-1"></i>Whole domain</button></form>
           {% elif it.status == 'alert' and it.blob %}
             <button class="btn btn-sm btn-soft" onclick="showAlert({{ it.id }}, this)"><i class="bi bi-card-text"></i></button>
           {% endif %}
@@ -208,5 +248,24 @@ function showAlert(id, btn) {
   if (!row.classList.contains('d-none')) { row.classList.add('d-none'); return; }
   fetch('/mail/' + id + '/text').then(r => r.json()).then(d => { row.querySelector('pre').textContent = d.text || '(empty)'; row.classList.remove('d-none'); });
 }
+</script>
+<script>
+(function () {                                        /* 1.11: senders list — search, tick all, one-row actions */
+  const f = document.getElementById('sndFind'), rows = [...document.querySelectorAll('#sndTable tbody tr[data-e]')];
+  if (f) f.addEventListener('input', () => { const q = f.value.toLowerCase().trim();
+    rows.forEach(r => r.style.display = !q || r.dataset.e.includes(q) ? '' : 'none'); });
+  if (f) f.addEventListener('keydown', e => { if (e.key === 'Enter' && e.target === f) e.preventDefault(); });
+  const all = document.getElementById('sndAll');
+  if (all) all.addEventListener('change', () => rows.forEach(r => { if (r.style.display !== 'none') r.querySelector('.snd-pick').checked = all.checked; }));
+  const form = document.getElementById('sndForm');
+  if (form) form.addEventListener('click', e => {
+    const b = e.target.closest('button[name="one"]'); if (!b) return;
+    const [act, entry] = b.value.split('|');
+    form.querySelectorAll('.snd-pick').forEach(c => c.checked = c.value === entry);
+    let h = form.querySelector('input[name="action"]');
+    if (!h) { h = document.createElement('input'); h.type = 'hidden'; h.name = 'action'; form.appendChild(h); }
+    h.value = act;
+  });
+})();
 </script>
 {% endblock %}

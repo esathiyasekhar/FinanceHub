@@ -338,6 +338,9 @@ def build(con, fy_start=None, fy_end=None, include_closed=True, ignore_scope=Fal
                     status = 'overdue' if later and later > dd.isoformat() else 'check'
                 a['bill'] = {'due': due_amt, 'min': st['min_due'] or 0, 'due_date': dd, 'paid': paid, 'left': left,
                              'status': status, 'statement_date': sd}
+            b_ = a['bill']                                   # 1.11: the next due date in full on the card
+            a['next_due'] = (b_['due_date'] if b_ and b_['status'] != 'paid' and b_['due_date'] else
+                             next_on_day(a['due_day_eff'], today) if a['due_day_eff'] else None)
         elif k == 'loan':
             ln = a['linked'][0] if a['linked'] else None
             a['loan'] = ln

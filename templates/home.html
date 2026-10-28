@@ -95,7 +95,7 @@
         <div class="due-date {{ 'today' if e.date == today }}"><div class="d">{{ e.date.day }}</div><div class="m">{{ e.date.strftime('%b') }}</div></div>
         <div class="min-w-0">
           <div class="t text-truncate">{% if e.account_id %}<a href="{{ url_for('account_detail', acc_id=e.account_id) }}" style="color:inherit;text-decoration:none">{{ e.title }}</a>{% else %}{{ e.title }}{% endif %}</div>
-          <div class="s"><i class="bi {{ e.icon }} me-1"></i>{{ e.status }}{% if e.min %} · min {{ e.min|inr }}{% endif %}{% if e.date < today %} · <span class="text-danger">{{ (today - e.date).days }} days late</span>{% endif %}</div>
+          <div class="s"><i class="bi {{ e.icon }} me-1"></i>Due {{ e.date|full_date }} · {{ e.status }}{% if e.min %} · min {{ e.min|inr }}{% endif %}{% if e.date < today %} · <span class="text-danger">{{ (today - e.date).days }} days late</span>{% endif %}</div>
         </div>
         <div class="a {{ 'amount-credit' if e.inflow else ('' if e.cash else 'muted') }}">{{ e.amount|inr if e.amount is not none else '—' }}</div>
       </div>

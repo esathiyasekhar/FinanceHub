@@ -23,6 +23,8 @@ The **All** tab shows the first six accounts of each kind with an **Open** link.
 
 A card for a credit card shows the outstanding, the limit, the utilisation, the last bill and its status: **Paid**, **Due**, **Part paid**, **Overdue** or **Not seen**. "Not seen" means the due date has passed, but the Hub has no later statement yet to show the payment.
 
+Due dates are shown in full, with the weekday and year, for example **Fri, 15 Nov 2026 (in 5 days)**. A card shows its **Next due** date: the due date of an unpaid bill, otherwise the next date that falls on its due day. A loan or EMI shows its **Next EMI** the same way. Home, the Dues calendar, alerts and the reminder mails use the same full dates.
+
 > **Good to know:** Balances come from your latest statement or from a figure you typed, whichever is newer. An "old" tag means the last figure is more than 40 days old.
 
 ## Adding accounts by hand

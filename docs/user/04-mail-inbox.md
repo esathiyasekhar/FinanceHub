@@ -117,13 +117,27 @@ You can add as many mailboxes as you like, for example a personal Gmail and a co
 | The app registration accepts only its own directory (Microsoft: AADSTS50059 "No tenant-identifying information found") | In the app registration open **Authentication**, set **Supported account types** to **Accounts in any organizational directory and personal Microsoft accounts**, **Save**, and sign in again. If Azure refuses to save, open **Manifest**, set `"requestedAccessTokenVersion": 2` (under `"api"`), save, then change the account types. |
 | This account cannot sign in to that app registration | In the app registration, set the supported account types to **any organizational directory and personal Microsoft accounts**. |
 
-## The sender list
+## Senders to read
 
-**Senders to read** lists the domains the Hub trusts, one per line. It starts with common Indian banks, card issuers, brokers, depositories and registrars. A domain also covers its sub-domains, so `bank.in` covers every regulated bank's `.bank.in` address.
+The **Senders to read** box decides whose mails the Hub opens. Mails from anyone else are only listed under **Other senders**; they are never downloaded.
 
-- Mails from domains on the list are opened and read.
-- Mails from any other sender are only listed under **Other senders**. They are never downloaded.
-- If a genuine sender is missing, click **Read this sender** next to its mail. Its mails are read on the next check.
+Each entry is either:
+
+- an **exact address**, for example `statements@sbicard.com` — only mails from that one address are read; or
+- a **domain**, for example `sbicard.com` — every address of that sender is read, including sub-domains (`bank.in` covers every regulated bank's `.bank.in` address).
+
+The list starts with the domains of common Indian banks, card issuers, brokers, depositories and registrars.
+
+- **Add**: type one or more addresses or domains, separated by commas, and click **Add**. Anything that is not a valid address or domain is reported and left out.
+- **Pause / resume**: the pause button on a row (or tick several rows and click **Pause ticked**) stops reading that sender without deleting it. Paused rows are greyed; **Resume ticked** reads them again.
+- **Delete**: the bin on a row, or **Delete ticked**. **Delete paused** removes every paused entry at once.
+- **Read only the exact addresses**: pauses every domain entry, so only the addresses you listed are read — for example statements from `statements@sbicard.com` but not offers from `offers@sbicard.com`.
+- **Built-in list** puts the built-in domains back.
+- **Search the list** filters the rows. **Mails seen** shows how many mails from each sender the Hub has come across.
+
+When you add or resume a sender, mails from it that were skipped earlier are read on the next check.
+
+Under **Other senders**, each skipped mail shows its full sender address with two buttons: **Read this address** adds just that address, and **Whole domain** adds its domain.
 
 ### My forwarding addresses
 

@@ -23,6 +23,7 @@ import hashlib
 import imaplib
 import json
 import re
+from collections import defaultdict
 import ssl
 import time
 import uuid
@@ -79,7 +80,7 @@ kfintech.com"""
 
 DEFAULTS = {'host': 'imap.gmail.com', 'port': '993', 'user': '', 'password': '', 'folder': 'INBOX', 'label': 'FinanceHub',
             'interval': '15', 'enabled': '0', 'auto_import': '1', 'since_days': '60', 'senders': DEFAULT_SENDERS,
-            'forwarders': '', 'last_check': '', 'last_result': '', 'uidvalidity': '', 'last_uid': '0',
+            'forwarders': '', 'senders_off': '', 'last_check': '', 'last_result': '', 'uidvalidity': '', 'last_uid': '0',
             'provider': '', 'ms_client_id': '', 'ms_tenant': 'common', 'oauth_refresh': ''}     # 1.8: Outlook (Microsoft sign-in)
 PROVIDERS = {'gmail': ('Gmail', 'imap.gmail.com', '993', 'FinanceHub'),
              'outlook': ('Outlook.com / Hotmail / Microsoft 365', 'outlook.office365.com', '993', ''),
@@ -257,7 +258,28 @@ def org_domain(d):
 
 def domain_on_list(domain, allowed):
     domain = (domain or '').lower()
-    return any(domain == a or domain.endswith('.' + a) for a in allowed)
+    return any(domain == a or domain.endswith('.' + a) for a in allowed if '@' not in a)
+
+
+ADDR_RE = re.compile(r'^[a-z0-9._%+\-]+@[a-z0-9-]+(\.[a-z0-9-]+)+$')
+DOMAIN_RE = re.compile(r'^(?=.{3,253}$)[a-z0-9-]+(\.[a-z0-9-]+)+$')
+
+
+def sender_ok(addr, allowed):
+    """1.11: an entry with '@' is one exact sender address; an entry without is a domain (and its sub-domains)."""
+    addr = (addr or '').lower().strip()
+    if '@' in addr and addr in allowed:
+        return True
+    return domain_on_list(addr.rsplit('@', 1)[-1], allowed)
+
+
+def sender_entries(text):
+    """Valid, de-duplicated entries (addresses or domains) from typed text. → (entries, rejected)"""
+    good, bad = [], []
+    for x in _lines(text):
+        x = x.strip('<>"\'').lstrip('@').rstrip('.')
+        (good if ADDR_RE.match(x) or DOMAIN_RE.match(x) else bad).append(x)
+    return list(dict.fromkeys(good)), bad
 
 
 def auth_check(msg, from_domain, trusted_servers=None):
@@ -600,7 +622,7 @@ def _check_box(con, s, factory=None):
             base = (mid, str(uid), rcv, frm, dom, subj)
             summary['checked'] += 1
             is_fwd = frm in forwarders
-            if not domain_on_list(dom, allowed) and not is_fwd:
+            if not sender_ok(frm, allowed) and not is_fwd:
                 con.execute("INSERT INTO mail_items (message_id, uid, received, from_addr, from_domain, subject, status, kind) "
                             "VALUES (?,?,?,?,?,?, 'ignored', 'other')", base)
                 summary['ignored'] += 1
@@ -621,7 +643,7 @@ def _check_box(con, s, factory=None):
             if is_fwd:
                 orig = forwarded_from(body_text(msg))
                 odom = orig.split('@')[-1] if orig else ''
-                if auth == 'pass' and domain_on_list(odom, allowed):
+                if auth == 'pass' and sender_ok(orig, allowed):
                     via, frm, dom = frm, orig, odom
                     auth, note = 'forwarded', f'forwarded by you ({via}) — original sender cannot be verified'
                 else:
@@ -740,6 +762,84 @@ def register(app, get_db, upload_dir, vault):
             pass
         return {'mail_auto': on, 'mail_waiting': waiting}
 
+    def _add_senders(con, entries):
+        """Add (or resume) senders; mails from them that were skipped earlier are read again on the next check."""
+        s = shared(con)
+        on, off = _lines(s['senders']), _lines(s.get('senders_off', ''))
+        for e in entries:
+            if e not in on:
+                on.append(e)
+            if e in off:
+                off.remove(e)
+            if '@' in e:
+                con.execute("DELETE FROM mail_items WHERE lower(from_addr)=? AND status='ignored'", (e,))
+            else:
+                con.execute("DELETE FROM mail_items WHERE status='ignored' AND (lower(from_domain)=? OR lower(from_domain) LIKE ?)",
+                            (e, '%.' + e))
+        _set(con, senders='\n'.join(on), senders_off='\n'.join(off))
+        if entries:
+            con.execute("UPDATE mailboxes SET last_uid='0'")       # look back again (already-read mails are skipped)
+
+    def senders_save():
+        """1.11: the list of senders to read — add, pause / resume, delete; exact addresses or whole domains."""
+        con = con_()
+        f = request.form
+        act = f.get('action', '')
+        s = shared(con)
+        on, off = _lines(s['senders']), _lines(s.get('senders_off', ''))
+        picked = [x.lower() for x in f.getlist('entry')]
+        if '|' in f.get('one', ''):                               # the pause / resume / delete button on one row
+            act, one = f['one'].split('|', 1)
+            picked = [one.lower()]
+        msg, cat = '', 'success'
+        if act == 'add':
+            good, bad = sender_entries(f.get('new', ''))
+            _add_senders(con, good)
+            msg = (f"Added {', '.join(good)}." if good else '') + (f" Not valid: {', '.join(bad)}." if bad else '')
+            cat = 'success' if good and not bad else 'warning'
+            msg = msg.strip() or 'Type a sender address (e.g. statements@bank.com) or a domain (e.g. bank.com).'
+        elif act == 'resume':
+            _add_senders(con, [x for x in picked if x in off])
+            msg = f"Reading again: {', '.join(picked)}."
+        elif act == 'pause':
+            on = [x for x in on if x not in picked]
+            off = list(dict.fromkeys(off + [x for x in picked if x in _lines(s['senders'])]))
+            _set(con, senders='\n'.join(on), senders_off='\n'.join(off))
+            msg, cat = f"Paused: {', '.join(picked)} — their mails are skipped.", 'info'
+        elif act == 'delete':
+            on, off = [x for x in on if x not in picked], [x for x in off if x not in picked]
+            _set(con, senders='\n'.join(on), senders_off='\n'.join(off))
+            msg, cat = f"Deleted: {', '.join(picked)}.", 'info'
+        elif act == 'pause_domains':
+            doms = [x for x in on if '@' not in x]
+            _set(con, senders='\n'.join(x for x in on if '@' in x), senders_off='\n'.join(dict.fromkeys(off + doms)))
+            msg, cat = (f'{len(doms)} domain(s) paused — only the exact addresses on the list are read now.', 'info')
+        elif act == 'delete_paused':
+            _set(con, senders_off='')
+            msg, cat = f'{len(off)} paused sender(s) deleted.', 'info'
+        elif act == 'defaults':
+            _add_senders(con, [x for x in _lines(DEFAULT_SENDERS) if x not in on])
+            msg = 'The built-in bank, card, broker and depository domains are on the list again.'
+        if act in ('pause', 'delete', 'pause_domains') and not _lines(shared(con)['senders']):
+            msg, cat = msg + ' No sender is being read now — add at least one.', 'warning'
+        con.commit()
+        if msg:
+            flash(msg, cat)
+        return redirect(url_for('mail_page', tab=f.get('tab', 'statements')) + '#senders')
+
+    def _sender_rows(con, s):
+        seen_a = {r[0]: r[1] for r in con.execute('SELECT lower(from_addr), COUNT(*) FROM mail_items GROUP BY 1')}
+        seen_d = defaultdict(int)
+        for a, n in seen_a.items():
+            if a and '@' in a:
+                seen_d[a.rsplit('@', 1)[1]] += n
+        def count(e):
+            return seen_a.get(e, 0) if '@' in e else sum(n for d, n in seen_d.items() if d == e or d.endswith('.' + e))
+        rows = [{'entry': e, 'on': True, 'addr': '@' in e, 'n': count(e)} for e in _lines(s['senders'])]
+        rows += [{'entry': e, 'on': False, 'addr': '@' in e, 'n': count(e)} for e in _lines(s.get('senders_off', ''))]
+        rows.sort(key=lambda r: (not r['addr'], r['entry'].rsplit('@', 1)[-1], r['entry']))
+        return rows
+
     def mail_page():
         con = con_()
         refresh_review(con)
@@ -759,7 +859,9 @@ def register(app, get_db, upload_dir, vault):
         edit = request.args.get('box')
         editing = next((b for b in bl if str(b['id']) == edit), None) if edit and edit != 'new' else None
         new_kind = request.args.get('kind') if request.args.get('kind') in PROVIDERS else 'gmail'
-        return render_template('mail.html', s=s, items=items, tab=tab, counts=counts, STATUS=STATUS, PROVIDERS=PROVIDERS,
+        snd = _sender_rows(con, s)
+        return render_template('mail.html', s=s, items=items, tab=tab, counts=counts, STATUS=STATUS, PROVIDERS=PROVIDERS, snd=snd,
+                               snd_on=sum(1 for r in snd if r['on']), snd_addr=sum(1 for r in snd if r['on'] and r['addr']),
                                boxes=bl, configured=any(b['ready'] for b in bl), editing=editing,
                                adding=(edit == 'new' or not bl), new_kind=new_kind, many=len(bl) > 1)
 
@@ -776,7 +878,7 @@ def register(app, get_db, upload_dir, vault):
         if 'since_days' in kw:
             kw['since_days'] = str(max(1, min(400, int(kw['since_days'] or 60)))) if kw['since_days'].isdigit() else '60'
         if 'senders' in f:
-            kw['senders'] = '\n'.join(dict.fromkeys(_lines(f['senders'])))
+            kw['senders'] = '\n'.join(sender_entries(f['senders'])[0])
         if 'forwarders' in f:
             kw['forwarders'] = '\n'.join(dict.fromkeys(a for a in _lines(f['forwarders']) if '@' in a))
         kw['enabled'] = '1' if f.get('enabled') else '0'
@@ -926,12 +1028,13 @@ def register(app, get_db, upload_dir, vault):
         act = request.form.get('action')
         if not it:
             return redirect(url_for('mail_page'))
-        if act == 'allow' and it['from_domain']:
-            s = settings(con)
-            _set(con, senders='\n'.join(dict.fromkeys(_lines(s['senders']) + [it['from_domain']])))
-            con.execute("DELETE FROM mail_items WHERE from_domain=? AND status='ignored'", (it['from_domain'],))
-            con.execute("UPDATE mailboxes SET last_uid='0'")   # read those mails again on the next check
-            flash(f'{it["from_domain"]} added to the sender list — its mails are read on the next check.', 'success')
+        if act in ('allow', 'allow_addr') and it['from_domain']:
+            entry = (it['from_addr'] if act == 'allow_addr' and it['from_addr'] else it['from_domain']).lower().strip()
+            if not (ADDR_RE.match(entry) or DOMAIN_RE.match(entry)):
+                flash('That sender address cannot be added as it is — add it by hand under Senders to read.', 'warning')
+                return redirect(url_for('mail_page', tab=request.form.get('tab', 'statements')))
+            _add_senders(con, [entry])
+            flash(f'{entry} added to the senders to read — its mails are read on the next check.', 'success')
         elif act == 'dismiss':
             _erase_blob(con, iid)
             con.execute("UPDATE mail_items SET status='done', note='dismissed' WHERE id=?", (iid,))
@@ -974,6 +1077,7 @@ def register(app, get_db, upload_dir, vault):
         ('/mail/<int:iid>', 'mail_item', mail_item, ['POST']),
         ('/mail/<int:iid>/text', 'mail_alert_text', mail_alert_text, ['GET']),
         ('/mail/forget', 'mail_forget', mail_forget, ['POST']),
+        ('/mail/senders', 'mail_senders', senders_save, ['POST']),
         ('/mail/box/save', 'mail_box_save', box_save, ['POST']),
         ('/mail/box/<int:mid>', 'mail_box_action', box_action, ['POST']),
         ('/mail/box/<int:mid>/test', 'mail_box_test', mail_test, ['POST']),

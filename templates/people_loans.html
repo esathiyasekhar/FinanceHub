@@ -22,7 +22,7 @@
       <div class="card-head">
         <span class="chip">{{ 'Lent to' if l.direction == 'given' else 'Borrowed from' }}</span><h6>{{ l.person }}</h6>
         {% if books|length > 1 %}<span class="chip tone-violet">{{ l.book }}</span>{% endif %}
-        {% if l.overdue %}<span class="chip tone-red">overdue since {{ l.due.strftime('%d %b %Y') }}</span>{% elif l.due %}<span class="muted" style="font-size:.74rem">due {{ l.due.strftime('%d %b %Y') }}</span>{% endif %}
+        {% if l.overdue %}<span class="chip tone-red">overdue since {{ l.due|full_date }}</span>{% elif l.due %}<span class="muted" style="font-size:.74rem">due {{ l.due|full_date }}</span>{% endif %}
         <div class="more text-end"><div class="num fw-bold">{{ l.outstanding|inr }}</div><div class="muted" style="font-size:.7rem">of {{ l.principal|inr }}{% if l.status != 'open' %} · settled{% endif %}</div></div>
       </div>
       {% if l.purpose %}<div class="muted mb-1" style="font-size:.78rem">{{ l.purpose }}{% if l.interest_rate %} · {{ '%g'|format(l.interest_rate) }}% p.a.{% endif %}</div>{% endif %}

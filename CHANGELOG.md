@@ -3,6 +3,19 @@
 Every change gets a new version number (shown at the bottom of the sidebar). From 28 Oct 2026 versions run 1.1, 1.2, …
 Earlier versions (v2 – v11) and their data were deleted at the owner's request; this log starts with 1.1.
 
+## 1.11 — 2026-10-28
+**Due dates in full** — card and EMI due dates now show weekday, day, month and year, e.g. *Fri, 15 Nov 2026*, with
+  "in 5 days" / "2 days overdue" where there is room: Accounts (new **Next due** on every card), account pages, Home, Dues,
+  card tools, loans with people, recurring, alerts, and the reminder and weekly mails.
+
+**Senders to read** (*Mail inbox*)
+- The list is now its own box: **exact sender addresses** (e.g. statements@sbicard.com — only that address is read) or
+  **domains** (every address of that sender). Add several at once; invalid entries are reported.
+- **Pause / resume** a sender without deleting it, **delete** single or ticked entries, **Read only the exact addresses**
+  (pauses all domains), **Delete paused**, **Built-in list**, search, and a count of mails seen from each sender.
+- *Other senders* shows the full sender address with **Read this address** or **Whole domain**; mails skipped earlier are
+  read on the next check.
+
 ## 1.10 — 2026-10-28
 - **Sign in with Microsoft:** the error AADSTS50059 ("No tenant-identifying information found") now says what to do — the
   Azure app registration accepts only its own directory; set its *Supported account types* to "Accounts in any

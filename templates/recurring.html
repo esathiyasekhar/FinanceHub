@@ -47,7 +47,7 @@
       <tr><td class="fw-semibold">{{ r.name }}{% if r.source == 'detected' %} <i class="bi bi-magic muted" title="found automatically"></i>{% endif %}</td>
         <td><span class="chip tone-{{ {'subscription':'violet','bill':'blue','insurance':'teal','sip':'amber','rent':'coral','income':'green'}.get(r.rtype, 'slate') }}">{{ dict(RTYPES).get(r.rtype, 'Other') }}</span></td>
         <td>{{ r.freq_label }}</td><td class="text-end num">{{ r.amount|inr }}</td><td class="text-end num muted">{{ r.monthly|inr }}</td>
-        <td>{% if r.next %}{{ r.next.strftime('%d %b') }}{% if r.due_in is not none and 0 <= r.due_in <= 7 %} <span class="chip tone-amber">{{ 'today' if r.due_in == 0 else r.due_in ~ 'd' }}</span>{% endif %}{% else %}—{% endif %}</td>
+        <td>{% if r.next %}{{ r.next|full_date }}{% if r.due_in is not none and 0 <= r.due_in <= 7 %} <span class="chip tone-amber">{{ 'today' if r.due_in == 0 else r.due_in ~ 'd' }}</span>{% endif %}{% else %}—{% endif %}</td>
         <td class="muted" style="font-size:.78rem">{{ r.account or '—' }}</td>
         <td class="text-end text-nowrap">
           <button class="btn btn-sm btn-soft" onclick='openRec({{ {"id": r.id, "name": r.name, "amount": r.amount, "freq": r.freq, "next_date": r.next.isoformat() if r.next else "", "account": r.account or "", "rtype": r.rtype, "notes": r.notes or ""}|tojson }})'><i class="bi bi-pencil"></i></button>

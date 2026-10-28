@@ -35,7 +35,7 @@
       <div class="list-row">
         <div class="rank {{ 'first' if loop.first and x.ok }}">{{ loop.index }}</div>
         <div class="min-w-0"><a href="{{ url_for('account_detail', acc_id=x.a.id) }}" class="fw-semibold" style="color:var(--text);text-decoration:none">{{ x.a.name }}</a>
-          <div class="muted" style="font-size:.72rem">billed {{ x.statement.strftime('%d %b') }} · pay by {{ x.due.strftime('%d %b') }}{% if x.a.available is not none %} · {{ x.a.available|inr }} free{% endif %}
+          <div class="muted" style="font-size:.72rem">billed {{ x.statement|full_date }} · pay by {{ x.due|full_date }}{% if x.a.available is not none %} · {{ x.a.available|inr }} free{% endif %}
             {% if not x.ok %}<span class="text-warning"> · {{ 'utilisation high' if (x.a.util or 0) >= 30 else 'no limit left' }}</span>{% endif %}</div></div>
         <div class="ms-auto text-end"><div class="fw-bold num" style="font-size:1.05rem">{{ x.free_days }}</div><div class="muted" style="font-size:.66rem">days free</div></div>
       </div>
