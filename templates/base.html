@@ -415,6 +415,7 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/datatables/1.10.21/js/jquery.dataTables.min.js"></script>
+<script src="{{ url_for('static', filename='js/picker.js') }}?v={{ hub_version|default('') }}"></script>
 <script>
   const HUB = {
     css: n => getComputedStyle(document.documentElement).getPropertyValue(n).trim(),

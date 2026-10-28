@@ -6,7 +6,7 @@ Every transaction from your statements gets a name, a category, a book and a per
 
 ## The category tree
 
-Categories have four levels: **Type › Head › Sub-head › Item**. For example, Expenses › Transport › Car › Fuel.
+Categories form a tree that starts with a **Type**, then a **Head**, then sub-categories as many levels deep as you like. For example, Expenses › Transport › Car › Fuel, or Expenses › Children › School › Fees › Term 2. You can add, rename, move and delete them (see [Managing categories](help:transactions-and-categories#managing-categories)).
 
 There are four Types:
 
@@ -34,7 +34,7 @@ Open **Transactions** under Money in the sidebar. The line at the top shows how 
 The quick buttons choose a period: this financial year, last year, **All time** or one of the last few months. The filters are:
 
 - **From** and **To** dates;
-- **Category (includes everything under it)**: pick a Head to see all its Sub-heads and Items;
+- **Category (includes everything under it)**: click it, type part of the name (for example "fuel") and pick it; a Head shows everything under it;
 - **Account**, **Entity** and **Person**;
 - **In / out**;
 - **Search (name, description, notes, amount)**, for example "swiggy" or "1500";
@@ -50,7 +50,7 @@ Tags on a row tell you more. **edited** means you changed it by hand. **rule** m
 Click a row to open **Rename & categorise**. The top shows the date, account, amount and the bank's own description.
 
 1. **Name (how it shows everywhere)**: type a clear name, for example "Petrol – City Fuels".
-2. **Category — Type › Head › Sub-head › Item**: pick the right heading. To make a new heading one level below it, type it in **…or add a new item under it**.
+2. **Category**: click it and type to search — any part of a name or path works ("school fees", "car fuel"). ↑ ↓ and Enter choose, Esc closes. If what you type does not exist, the list offers **Add “…” under** the category now chosen. You can also type a name in **…or add a new sub-category under it**.
 3. **Entity**: the book this belongs to, for example Personal or "ABC Traders Pvt Ltd".
 4. **Person**: who the money was spent by or for.
 5. **Notes (this transaction)**: anything you want to remember.
@@ -100,7 +100,7 @@ Transactions no rule could place go to Expenses › Uncategorised › To review 
 Open **Breakdown** under Money. It shows where money comes from and where it goes, for the period and filters you choose. The filters are **Entity**, **Person**, **Account** and **Show**.
 
 - The tiles show **Income**, **Expenses**, **Saved** and **Invested**.
-- The table shows Type › Head › Sub-head › Item. The **Type**, **Head**, **Sub-head** and **Item** buttons open the tree to that depth, and the arrows open one branch. Each line shows the number of transactions, **Out**, **In**, **Net** and its **Share**. Click a name to see its transactions.
+- The table shows the category tree. The **Type**, **Head**, **Sub-head** and **Item** buttons open the tree to that depth (deeper sub-categories open with the arrows), and the arrows open one branch. Each line shows the number of transactions, **Out**, **In**, **Net** and its **Share**. Click a name to see its transactions.
 - **By entity**, **By person** and **By account** show income, expenses and investments for each.
 - **Month by month** shows one Type by Head, Sub-head or Item across months.
 
@@ -110,14 +110,16 @@ Net expenses are money out minus refunds. Net income is money in minus reversals
 
 ## Managing categories
 
-Open **Categories** under Settings. Hover over a row to see its buttons:
+Open **Categories** under Settings.
 
-- **+ Head**, **+ Sub-head** or **+ Item** adds a heading under it;
-- the pencil renames it;
-- the arrows move it under another heading;
-- the bin deletes it.
+- **Search categories** at the top shows the categories whose name or path matches, with the categories above and below them.
+- **Add a category** asks for a name and where it goes: under any category (type to search in **Under**), or at the **Top level** as a new group next to the four Types. A new top-level group asks whether it **counts as** income, an expense, a transfer or an investment, so totals stay right.
+- **+ Sub-category** on any row adds a category under it. There is no limit on the number of levels.
+- The pencil renames a category, the arrows move it (with everything under it) under another category, and the bin deletes it.
 
-When you delete a heading, the Hub asks where its transactions and rules should go. You cannot rename or delete the four Types. A move that would make more than four levels is refused. The numbers show the transactions and rules for each heading. Click a name to see its transactions.
+When you delete a category, the Hub asks where its transactions and rules should go (its parent is chosen for you). You can rename, move or delete everything except the four Types — Income, Expenses, Transfers and Investments — which the totals and reports rely on. Two categories under the same parent cannot have the same name. The numbers show the transactions and rules for each category. Click a name to see its transactions.
+
+Category lists elsewhere — the Transactions filter, the edit window, bulk actions and payee rules — all work the same way: click, type to search, choose.
 
 ## Payee rules
 

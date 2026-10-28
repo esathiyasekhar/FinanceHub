@@ -457,8 +457,11 @@ def search(con, q):
                          "ORDER BY date DESC LIMIT 8", (like, like, like, like, f'{q.replace(",", "")}%')):
         res.append({'group': 'Transactions', 'title': t['d'][:60], 'sub': f"{t['date']} · {t['account']} · {'−' if t['type'] == 'debit' else '+'}₹{t['amount']:,.0f}",
                     'url': url_for('transactions', search=q, start='2000-01-01', end='2099-12-31'), 'icon': 'bi-receipt'})
-    for c in con.execute('SELECT id, name, level FROM categories WHERE name LIKE ? AND level IN (2,3) LIMIT 4', (like,)):
-        res.append({'group': 'Categories', 'title': c['name'], 'sub': 'Head' if c['level'] == 2 else 'Sub-head',
+    import classifier as _C
+    _paths = None
+    for c in con.execute('SELECT id, name, level FROM categories WHERE name LIKE ? AND level >= 2 ORDER BY level LIMIT 6', (like,)):
+        _paths = _paths or _C.load_tree(con)[1]
+        res.append({'group': 'Categories', 'title': c['name'], 'sub': _paths[c['id']]['short_path'] if c['id'] in _paths else '',
                     'url': url_for('transactions', cat=c['id'], start='2000-01-01', end='2099-12-31'), 'icon': 'bi-tag'})
     try:
         for s in con.execute('SELECT id, symbol, name FROM inv_securities WHERE symbol LIKE ? OR name LIKE ? LIMIT 4', (like, like)):

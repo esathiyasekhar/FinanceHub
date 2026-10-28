@@ -42,8 +42,8 @@
             <option value="contains" {% if r.match_type=='contains' %}selected{% endif %}>description contains</option></select></div>
           <div class="col-md-2"><input name="pattern" class="form-control form-control-sm" value="{{ r.pattern }}"></div>
           <div class="col-md-2"><input name="display_name" class="form-control form-control-sm" value="{{ r.display_name or '' }}" placeholder="name shown"></div>
-          <div class="col-md-3"><select name="category_id" class="form-select form-select-sm">
-            {% for o in cat_options %}<option value="{{ o.id }}" {% if o.id==r.category_id %}selected{% endif %}>{{ o.label }}</option>{% endfor %}</select></div>
+          <div class="col-md-3"><select name="category_id" class="form-select form-select-sm" data-picker data-picker-add="1">
+            {% for o in cat_options %}<option value="{{ o.id }}" data-path="{{ o.path }}" {% if o.id==r.category_id %}selected{% endif %}>{{ o.label }}</option>{% endfor %}</select></div>
           <div class="col-md-1"><select name="entity" class="form-select form-select-sm">
             {% for e in entities %}<option {% if e==r.entity %}selected{% endif %}>{{ e }}</option>{% endfor %}</select></div>
           <div class="col-md-1"><select name="person" class="form-select form-select-sm"><option value="">(auto)</option>

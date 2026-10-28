@@ -3,6 +3,25 @@
 Every change gets a new version number (shown at the bottom of the sidebar). From 28 Oct 2026 versions run 1.1, 1.2, …
 Earlier versions (v2 – v11) and their data were deleted at the owner's request; this log starts with 1.1.
 
+## 1.9 — 2026-10-28
+**Categories** (*Settings › Categories*)
+- **Add a category** anywhere: under any category, or as a new top-level group next to Income / Expenses / Transfers /
+  Investments (you choose what it counts as). **Delete**, rename and move any category except the four Types.
+- **No limit on levels**: sub-categories can go as deep as you like (previously four levels).
+- **Search categories** on the page; matches show with the categories above and below them.
+
+**Type-to-search category lists** — the Transactions filter, the edit window, bulk actions and payee rules: click, type any
+  part of a name or path ("car fuel"), pick with the keyboard or mouse; "Add “…” under …" creates a missing category on the spot.
+  Ctrl+K finds categories at any depth.
+
+**Automatic prices** (*Investments › Portfolio & plan*)
+- Daily closing prices for **shares, ETFs, REITs, InvITs, sovereign gold bonds and listed bonds** from the NSE and BSE
+  bhavcopies, and **mutual-fund NAVs** from AMFI — downloaded in the background while you use the Hub, matched to your
+  holdings by ISIN on your PC (nothing about your holdings is sent anywhere).
+- **Update prices automatically** switch (on by default) and **Update prices now** with a per-source result; yfinance is
+  still used, if installed, for anything the files do not have. A price you type stays until a newer market price arrives.
+  (Before 1.9 prices were updated only by the Refresh button and only with the optional yfinance package.)
+
 ## 1.8 — 2026-10-28
 **Outlook mailboxes** (*Settings › Mail inbox*)
 - **Sign in with Microsoft** for Outlook.com, Hotmail, Live and Microsoft 365 mailboxes — Microsoft no longer accepts

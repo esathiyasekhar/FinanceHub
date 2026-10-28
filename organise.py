@@ -106,6 +106,12 @@ class Filters:
         return {k: v for k, v in d.items() if v not in ('', None)}
 
 
+def _levels(path):
+    """Type, Head, Sub-head, Item for exports; since 1.9 deeper levels are joined into Item ("Item › Deeper › …")."""
+    p = [x for x in (path or '').split(' › ') if x]
+    return (p[:3] + [''] * 3)[:3] + [' › '.join(p[3:])]
+
+
 FROM = 'FROM transactions t LEFT JOIN categories c ON c.id = t.category_id'
 
 
@@ -175,7 +181,7 @@ def register(app, get_db):
             yield '﻿Date,Name,Original description,Type,Head,Sub-head,Item,Entity,Person,Account,Debit,Credit,Notes\n'
             for r in rows:
                 node = by_id.get(r['category_id'])
-                p = (node['path'].split(' › ') if node else []) + ['', '', '', '']
+                p = _levels(node['path'] if node else '')
                 yield ','.join([r['date'], esc(_shown_name(r)), esc(r['description']), esc(p[0]), esc(p[1]), esc(p[2]),
                                 esc(p[3]), esc(r['entity'] or 'Personal'), esc(r['person'] or 'Self'), esc(r['account']),
                                 f"{r['amount']:.2f}" if r['type'] == 'debit' else '',
@@ -232,13 +238,28 @@ def register(app, get_db):
             con.execute('INSERT INTO entities (name, sort_order) VALUES (?, 50)', (name,))
         return name
 
+    def _clean_name(name):
+        name = re.sub(r'\s+', ' ', (name or '').replace('›', '-')).strip()[:80]       # '›' separates levels in paths
+        if not name:
+            raise ValueError('type a name')
+        return name
+
     def _new_child(con, parent_id, name):
         p = con.execute('SELECT id, level, kind FROM categories WHERE id=?', (parent_id,)).fetchone()
         if not p:
             raise ValueError('choose a heading first')
-        if p['level'] >= 4:
-            raise ValueError('an Item cannot have children (4 levels maximum) — pick its Sub-head instead')
-        return C._ins(con, p['id'], name.strip(), p['level'] + 1, p['kind'], 99)
+        name = _clean_name(name)
+        if con.execute('SELECT 1 FROM categories WHERE parent_id=? AND lower(name)=lower(?)', (p['id'], name)).fetchone():
+            raise ValueError(f'that heading already has a “{name}”')
+        return C._ins(con, p['id'], name, p['level'] + 1, p['kind'], 99)      # 1.9: no limit on the number of levels
+
+    def _new_root(con, name, kind):
+        if kind not in KIND_LABEL:
+            raise ValueError('choose whether it is income, an expense, a transfer or an investment')
+        name = _clean_name(name)
+        if con.execute('SELECT 1 FROM categories WHERE parent_id IS NULL AND lower(name)=lower(?)', (name,)).fetchone():
+            raise ValueError(f'a top-level category “{name}” already exists')
+        return C._ins(con, None, name, 1, kind, 50)
 
     def api_txn_save(tid):
         con = get_db()
@@ -252,7 +273,9 @@ def register(app, get_db):
         try:
             cid = int(d.get('category_id') or r['category_id'])
             if (d.get('new_item') or '').strip():
-                cid = _new_child(con, cid, d['new_item'])
+                ex = con.execute('SELECT id FROM categories WHERE parent_id=? AND lower(name)=lower(?)',
+                                 (cid, d['new_item'].strip())).fetchone()
+                cid = ex[0] if ex else _new_child(con, cid, d['new_item'])
         except ValueError as e:
             return jsonify({'ok': False, 'msg': str(e)}), 400
         name = (d.get('display_name') or '').strip()
@@ -374,7 +397,7 @@ def register(app, get_db):
         totals = {k: 0.0 for k in KIND_LABEL}
         for r in roots:
             if node.get(r['id']):
-                totals[r['kind']] = net_value(r['kind'], node[r['id']]['debit'], node[r['id']]['credit'])
+                totals[r['kind']] += net_value(r['kind'], node[r['id']]['debit'], node[r['id']]['credit'])
         type_total = {r['id']: abs(totals[r['kind']]) or 1 for r in roots}
         root_of = {}
         for ln in lines:
@@ -422,7 +445,7 @@ def register(app, get_db):
         node, month, dims, months = _aggregate(con, f, by_id)
         wb = Workbook()
         hdr_fill, hdr_font = PatternFill('solid', fgColor='1E293B'), Font(bold=True, color='FFFFFF')
-        lvl_font = {1: Font(bold=True, size=12), 2: Font(bold=True), 3: Font(italic=True), 4: Font()}
+        lvl_font = defaultdict(Font, {1: Font(bold=True, size=12), 2: Font(bold=True), 3: Font(italic=True)})
         money = '#,##0.00;[Red]-#,##0.00'
 
         def header(ws, cols, widths):
@@ -441,8 +464,7 @@ def register(app, get_db):
             a = node.get(n['id'])
             if not a:
                 return
-            p = n['path'].split(' › ')
-            ws.append([*(p + [''] * 4)[:4], a['n'], round(a['debit'], 2), round(a['credit'], 2),
+            ws.append([*_levels(n['path']), a['n'], round(a['debit'], 2), round(a['credit'], 2),
                        round(net_value(n['kind'], a['debit'], a['credit']), 2)])
             for c in ws[ws.max_row]:
                 c.font = lvl_font[n['level']]
@@ -489,8 +511,7 @@ def register(app, get_db):
                     'Account', 'Money out', 'Money in', 'Notes'], [11, 32, 46, 12, 22, 24, 26, 13, 13, 22, 13, 13, 30])
         for r in con.execute(f"SELECT t.* {FROM} WHERE {f.where} ORDER BY t.date, t.id", f.params):
             n = by_id.get(r['category_id'])
-            p = (n['path'].split(' › ') if n else []) + [''] * 4
-            wt.append([r['date'], _shown_name(r), r['description'], *p[:4], r['entity'] or 'Personal',
+            wt.append([r['date'], _shown_name(r), r['description'], *_levels(n['path'] if n else ''), r['entity'] or 'Personal',
                        r['person'] or 'Self', r['account'], r['amount'] if r['type'] == 'debit' else None,
                        r['amount'] if r['type'] == 'credit' else None, r['notes'] or ''])
             for col in (11, 12):
@@ -523,27 +544,41 @@ def register(app, get_db):
             o['name'] = by_id[o['id']]['name']
             o['parent_id'] = by_id[o['id']]['parent_id']
             o['has_children'] = bool(by_id[o['id']]['children'])
+            o['builtin'] = o['level'] == 1 and o['name'] in C.KINDS        # the four Types stay fixed
         return render_template('categories.html', flat=flat, kind_label=KIND_LABEL, kind_color=KIND_COLOR)
 
     def cat_add():
         con = get_db()
+        f = request.form if request.form else (request.get_json(silent=True) or {})
+        pid = str(f.get('parent_id', '')).strip()
+        want_json = f.get('next') == 'json' or request.is_json
         try:
-            _new_child(con, int(request.form['parent_id']), request.form['name'])
+            if pid in ('', 'top'):
+                cid = _new_root(con, f.get('name'), f.get('kind'))
+            else:
+                cid = _new_child(con, int(pid), f.get('name'))
             con.commit()
-            flash(f"Added “{request.form['name'].strip()}”.", 'success')
         except (ValueError, KeyError) as e:
+            if want_json:
+                return jsonify({'ok': False, 'msg': str(e)}), 400
             flash(f'Not added: {e}', 'warning')
-        return redirect(url_for('categories') + f"#c{request.form.get('parent_id', '')}")
+            return redirect(url_for('categories') + (f'#c{pid}' if pid.isdigit() else ''))
+        if want_json:
+            _, by_id = C.load_tree(con)
+            n = by_id[cid]
+            return jsonify({'ok': True, 'id': cid, 'path': n['path'], 'level': n['level'], 'kind': n['kind']})
+        flash(f"Added “{str(f.get('name', '')).strip()}”.", 'success')
+        return redirect(url_for('categories') + f"#c{cid}")
 
     def cat_rename(cid):
         con = get_db()
-        name = request.form.get('name', '').strip()
+        name = re.sub(r'\s+', ' ', request.form.get('name', '').replace('›', '-')).strip()[:80]
         n = con.execute('SELECT parent_id, level FROM categories WHERE id=?', (cid,)).fetchone()
         if not name or not n:
             flash('Name required.', 'warning')
-        elif n['level'] == 1:
+        elif n['level'] == 1 and _builtin_type(con, cid):
             flash('The four Types (Income, Expenses, Transfers, Investments) cannot be renamed.', 'warning')
-        elif con.execute('SELECT 1 FROM categories WHERE parent_id IS ? AND name=? AND id<>?',
+        elif con.execute('SELECT 1 FROM categories WHERE parent_id IS ? AND lower(name)=lower(?) AND id<>?',
                          (n['parent_id'], name, cid)).fetchone():
             flash('A heading with that name already exists at this place.', 'warning')
         else:
@@ -553,12 +588,16 @@ def register(app, get_db):
             flash(f'Renamed to “{name}”.', 'success')
         return redirect(url_for('categories') + f'#c{cid}')
 
+    def _builtin_type(con, cid):
+        r = con.execute('SELECT name, parent_id FROM categories WHERE id=?', (cid,)).fetchone()
+        return bool(r and r['parent_id'] is None and r['name'] in C.KINDS)
+
     def _refresh_heads(con):
         _, by_id = C.load_tree(con)
         for cid, n in by_id.items():
             p = n['path'].split(' › ')
-            if len(p) >= 2:
-                con.execute('UPDATE transactions SET category=? WHERE category_id=?', (p[1], cid))
+            con.execute('UPDATE transactions SET category=? WHERE category_id=? AND category IS NOT ?',
+                        (p[1] if len(p) >= 2 else p[0], cid, p[1] if len(p) >= 2 else p[0]))
 
     def cat_move(cid):
         con = get_db()
@@ -569,16 +608,15 @@ def register(app, get_db):
             flash('Choose where to move it.', 'warning')
             return redirect(url_for('categories'))
         n, p = by_id.get(cid), by_id.get(new_parent)
-        if not n or not p or n['level'] == 1:
+        if not n or not p or (n['level'] == 1 and _builtin_type(con, cid)):
             flash('Cannot move that.', 'warning')
             return redirect(url_for('categories'))
         sub = C.descendants(by_id, cid)
         depth = max(by_id[s]['level'] for s in sub) - n['level']
         if new_parent in sub:
             flash('Cannot move a heading inside itself.', 'warning')
-        elif p['level'] + 1 + depth > 4:
-            flash('That would make more than 4 levels — move it higher up, or move its children first.', 'warning')
-        elif con.execute('SELECT 1 FROM categories WHERE parent_id=? AND name=?', (new_parent, n['name'])).fetchone():
+        elif con.execute('SELECT 1 FROM categories WHERE parent_id=? AND lower(name)=lower(?) AND id<>?',
+                         (new_parent, n['name'], cid)).fetchone():
             flash(f"“{p['name']}” already has a “{n['name']}”.", 'warning')
         else:
             shift = p['level'] + 1 - n['level']
@@ -599,7 +637,7 @@ def register(app, get_db):
         except ValueError:
             target = 0
         sub = C.descendants(by_id, cid) if n else []
-        if not n or n['level'] == 1:
+        if not n or (n['level'] == 1 and _builtin_type(con, cid)):
             flash('The four Types cannot be deleted.', 'warning')
         elif target in sub or target not in by_id:
             flash('Choose where its transactions should go (outside the heading being deleted).', 'warning')

@@ -701,6 +701,7 @@ def register(app, get_db, upload_dir: Path):
         bid = SC.broker_id() or (int(request.args['broker']) if request.args.get('broker', '').isdigit() else None)
         atype = request.args.get('type') or None
         rows, summary, st = build_portfolio(con, bid, atype)
+        import prices as PR
         tlist = AS.types(con)
         tmap = {t['key']: t for t in tlist}
         all_rows = build_portfolio(con, bid)[0] if atype else rows
@@ -721,7 +722,8 @@ def register(app, get_db, upload_dir: Path):
                             "LEFT JOIN inv_brokers b ON b.id=i.broker_id ORDER BY (i.status='open') DESC, i.id DESC LIMIT 60").fetchall()
         return render_template('inv_portfolio.html', rows=rows, s=summary, st=st, labels=SETTING_LABELS,
                                brokers=broker_rows, instr=instr, sel_broker=bid, sel_type=atype, types=tlist, mix=mix,
-                               view=request.args.get('view', 'stock'),
+                               view=request.args.get('view', 'stock'), price_auto=PR.get_setting(con, 'prices_auto', '1') == '1',
+                               price_result=PR.get_setting(con, 'prices_result'), price_running=PR.CACHE['running'],
                                actionable=[r for r in rows if r['suggestion']['action'] in ('BUY', 'ADD', 'TRIM', 'SELL')])
 
     def save_settings():
@@ -1104,29 +1106,46 @@ def register(app, get_db, upload_dir: Path):
         return redirect(url_for('inv_import'))
 
     def refresh_prices():
+        """Update now: download the NSE / BSE bhavcopies and AMFI NAVs (1.9), then yfinance for anything still missing."""
+        import prices as PR
         con = con_()
-        try:
-            import yfinance as yf  # optional
-        except ImportError:
-            flash('Live prices need the yfinance package: open a command prompt in the Hub folder and run '
-                  '"pip install yfinance", then try again. Until then prices come from holdings files or what you type.',
-                  'warning')
+        if request.form.get('auto') in ('0', '1'):                   # the automatic-update switch
+            PR.set_setting(con, 'prices_auto', request.form['auto'])
+            con.commit()
+            flash('Prices will be updated automatically every day.' if request.form['auto'] == '1'
+                  else 'Automatic price updates are off — use Update now when you want new prices.', 'info')
             return redirect(url_for('inv_portfolio'))
-        n = 0
-        for s in con.execute("SELECT id, symbol, exchange, isin FROM inv_securities").fetchall():
-            tick = f"{s['symbol']}.{'BO' if (s['exchange'] or '').upper() == 'BSE' else 'NS'}"
-            try:
-                h = yf.Ticker(tick).history(period='5d')
-                if not len(h) and s['isin']:                       # symbol not confirmed yet → look up by ISIN
-                    h = yf.Ticker(s['isin']).history(period='5d')
-                if len(h):
-                    con.execute("UPDATE inv_securities SET cmp=?, cmp_date=?, cmp_source='yfinance' WHERE id=?",
-                                (float(h['Close'].iloc[-1]), h.index[-1].date().isoformat(), s['id']))
-                    n += 1
-            except Exception:  # noqa: BLE001
-                pass
+        cache = PR.update_now()
+        data = cache.get('data')
+        n = PR.apply(con, data) if data else 0
+        if data:
+            PR.set_setting(con, 'prices_applied', data['at'])
+            PR.set_setting(con, 'prices_result', PR.summary(data, n))
         con.commit()
-        flash(f'Prices updated for {n} stock(s).', 'success')
+        missing = [r for r in con.execute("SELECT id, symbol, exchange, isin FROM inv_securities WHERE cmp_date IS NULL OR "
+                                          "cmp_date < date('now', '-7 day')").fetchall()]
+        ny = 0
+        if missing:
+            try:
+                import yfinance as yf  # optional extra source
+            except ImportError:
+                yf = None
+            for s in (missing if yf else []):
+                tick = f"{s['symbol']}.{'BO' if (s['exchange'] or '').upper() == 'BSE' else 'NS'}"
+                try:
+                    h = yf.Ticker(tick).history(period='5d')
+                    if not len(h) and s['isin']:
+                        h = yf.Ticker(s['isin']).history(period='5d')
+                    if len(h):
+                        con.execute("UPDATE inv_securities SET cmp=?, cmp_date=?, cmp_source='yfinance' WHERE id=?",
+                                    (float(h['Close'].iloc[-1]), h.index[-1].date().isoformat(), s['id']))
+                        ny += 1
+                except Exception:  # noqa: BLE001
+                    pass
+            con.commit()
+        st = (data or {}).get('status', {})
+        detail = ' · '.join(f'{k.upper()}: {v}' for k, v in st.items()) or cache.get('error') or 'no source answered'
+        flash(f'Prices updated for {n + ny} holding(s). {detail}', 'success' if n + ny else 'warning')
         return redirect(url_for('inv_portfolio'))
 
     routes = [

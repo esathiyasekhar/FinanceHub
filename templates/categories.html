@@ -1,14 +1,16 @@
 {% extends "base.html" %}
 {% block title %}Categories – Finance Hub{% endblock %}
-{% block page_title %}Categories — Type › Head › Sub-head › Item{% endblock %}
+{% block page_title %}Categories{% endblock %}
 
 {% block head %}
 <style>
 .cat td { font-size:.84rem; vertical-align:middle; }
 .cat tr.l1 td { font-weight:700; background:var(--tint); }
 .cat tr.l2 td { font-weight:600; }
-.cat tr.l4 td { color:var(--text-soft); }
-.cat .act { opacity:.35; }
+.cat tr.deep td { color:var(--text-soft); }
+.cat tr.hide { display:none; }
+.cat mark { padding:0; background:rgba(250,204,21,.45); color:inherit; }
+.cat .act { opacity:.55; }
 .cat tr:hover .act { opacity:1; }
 .cat tr:target td { background:rgba(59,130,246,.15); }
 .kind-dot { display:inline-block; width:8px; height:8px; border-radius:50%; margin-right:6px; }
@@ -16,9 +18,17 @@
 {% endblock %}
 
 {% block content %}
-<div class="text-muted mb-3" style="font-size:.82rem">
-  Four levels: <strong>Type</strong> (Income / Expenses / Transfers / Investments) › <strong>Head</strong> › <strong>Sub-head</strong> › <strong>Item</strong>.
-  Hover a row to add a heading under it, rename, move or delete. Deleting asks where its transactions should go.
+<div class="d-flex flex-wrap gap-2 align-items-center mb-2">
+  <div class="input-group input-group-sm" style="max-width:380px">
+    <span class="input-group-text"><i class="bi bi-search"></i></span>
+    <input id="catSearch" class="form-control" placeholder="Search categories — e.g. fuel, school fees" autocomplete="off">
+  </div>
+  <span class="muted" id="catHits" style="font-size:.76rem"></span>
+  <button class="btn btn-sm btn-primary ms-auto" type="button" onclick="act('add', '', 0)"><i class="bi bi-plus-lg me-1"></i>Add a category</button>
+</div>
+<div class="text-muted mb-3" style="font-size:.8rem">
+  Categories sit under the four Types (Income, Expenses, Transfers, Investments). Add sub-categories under any category, as many
+  levels deep as you like; rename, move or delete any of them. Deleting asks where its transactions should go.
   Name a single transaction or a whole payee from the <a href="{{ url_for('transactions') }}">Transactions</a> page.
 </div>
 <div class="chart-card p-0">
@@ -26,17 +36,16 @@
     <thead><tr><th>Heading</th><th class="text-end" style="width:110px">Transactions</th><th class="text-end" style="width:70px">Rules</th><th style="width:300px"></th></tr></thead>
     <tbody>
     {% for o in flat %}
-      <tr class="l{{ o.level }}" id="c{{ o.id }}">
+      <tr class="l{{ o.level }}{{ ' deep' if o.level > 3 }}" id="c{{ o.id }}" data-path="{{ o.path|lower }}">
         <td style="padding-left:{{ (o.level-1)*1.5 + 0.5 }}rem">
           {% if o.level == 1 %}<span class="kind-dot" style="background:{{ kind_color[o.kind] }}"></span>{% endif %}
-          <a class="text-reset text-decoration-none" href="{{ url_for('transactions', cat=o.id, start='2000-01-01', end='2099-12-31') }}">{{ o.name }}</a>
-          {% if o.level == 4 %}<small class="text-muted ms-1">item</small>{% endif %}
+          <a class="text-reset text-decoration-none cat-name" href="{{ url_for('transactions', cat=o.id, start='2000-01-01', end='2099-12-31') }}">{{ o.name }}</a>
         </td>
         <td class="text-end text-muted">{{ o.n or '' }}</td>
         <td class="text-end text-muted">{{ o.rules or '' }}</td>
         <td class="text-end act">
-          {% if o.level < 4 %}<button class="btn btn-sm btn-outline-success py-0" onclick="act('add', {{ o.id }}, {{ o.level }}, this)"><i class="bi bi-plus"></i> {{ ['','Head','Sub-head','Item'][o.level] }}</button>{% endif %}
-          {% if o.level > 1 %}
+          <button class="btn btn-sm btn-outline-success py-0" onclick="act('add', {{ o.id }}, {{ o.level }}, this)" title="Add a sub-category under {{ o.name }}"><i class="bi bi-plus"></i> Sub-category</button>
+          {% if not o.builtin %}
           <button class="btn btn-sm btn-outline-secondary py-0" onclick="act('rename', {{ o.id }}, {{ o.level }}, this)"><i class="bi bi-pencil"></i></button>
           <button class="btn btn-sm btn-outline-secondary py-0" onclick="act('move', {{ o.id }}, {{ o.level }}, this)"><i class="bi bi-arrows-move"></i></button>
           <button class="btn btn-sm btn-outline-danger py-0" onclick="act('delete', {{ o.id }}, {{ o.level }}, this)"><i class="bi bi-trash"></i></button>
@@ -55,9 +64,16 @@
       <div class="text-muted mb-2" style="font-size:.8rem" id="catPath"></div>
       <div id="fName"><label class="form-label" style="font-size:.8rem">Name</label><input name="name" class="form-control form-control-sm" id="catName"></div>
       <input type="hidden" name="parent_id" id="catParent">
+      <div id="fParent" style="display:none" class="mt-2"><label class="form-label" style="font-size:.8rem">Under</label>
+        <select class="form-select form-select-sm" id="catUnder" data-picker>
+          <option value="top" data-path="Top level — a new group next to the four Types">Top level — a new group next to the four Types</option>
+          {% for o in flat %}<option value="{{ o.id }}" data-path="{{ o.path }}">{{ o.label }}</option>{% endfor %}
+        </select>
+        <div id="fKind" style="display:none" class="mt-2"><label class="form-label" style="font-size:.8rem">Counts as</label>
+          <select name="kind" class="form-select form-select-sm">{% for k, l in kind_label.items() %}<option value="{{ k }}" {{ 'selected' if k == 'expense' }}>{{ l }}</option>{% endfor %}</select></div></div>
       <div id="fTarget" style="display:none"><label class="form-label" style="font-size:.8rem" id="targetLbl"></label>
-        <select class="form-select form-select-sm" id="catTarget">
-          {% for o in flat %}<option value="{{ o.id }}" data-level="{{ o.level }}">{{ o.label }}</option>{% endfor %}
+        <select class="form-select form-select-sm" id="catTarget" data-picker>
+          {% for o in flat %}<option value="{{ o.id }}" data-level="{{ o.level }}" data-path="{{ o.path }}">{{ o.label }}</option>{% endfor %}
         </select></div>
     </div>
     <div class="modal-footer py-2"><button type="button" class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
@@ -73,29 +89,62 @@ const COUNTS = { {% for o in flat %}{{ o.id }}: {{ o.n }},{% endfor %} };
 const m = new bootstrap.Modal(document.getElementById('catModal'));
 const $ = id => document.getElementById(id);
 function act(kind, id, level) {
-  const form = $('catForm'); $('catPath').textContent = PATHS[id];
-  $('fName').style.display = ''; $('fTarget').style.display = 'none';
+  const form = $('catForm'); $('catPath').textContent = id ? PATHS[id] : '';
+  $('fName').style.display = ''; $('fTarget').style.display = 'none'; $('fParent').style.display = 'none';
   $('catTarget').name = ''; $('catName').value = ''; $('catParent').value = '';
   $('catGo').className = 'btn btn-sm btn-primary';
   if (kind === 'add') {
-    $('catTitle').textContent = 'Add a ' + ['', 'Head', 'Sub-head', 'Item'][level] + ' under this';
-    form.action = '{{ url_for("cat_add") }}'; $('catParent').value = id;
+    form.action = '{{ url_for("cat_add") }}';
+    if (id) { $('catTitle').textContent = 'Add a sub-category'; $('catParent').value = id; }
+    else {
+      $('catTitle').textContent = 'Add a category'; $('fParent').style.display = '';
+      $('catUnder').value = $('catUnder').value || 'top'; underChanged();
+    }
   } else if (kind === 'rename') {
     $('catTitle').textContent = 'Rename'; form.action = '/categories/' + id + '/rename';
     $('catName').value = PATHS[id].split(' › ').pop();
   } else if (kind === 'move') {
     $('catTitle').textContent = 'Move under…'; form.action = '/categories/' + id + '/move';
     $('fName').style.display = 'none'; $('fTarget').style.display = ''; $('catTarget').name = 'parent_id';
-    $('targetLbl').textContent = 'New parent heading';
-    [...$('catTarget').options].forEach(o => o.disabled = +o.dataset.level >= 4 || o.value == id);
+    $('targetLbl').textContent = 'New parent category';
+    [...$('catTarget').options].forEach(o => o.disabled = o.value == id || PATHS[o.value].startsWith(PATHS[id] + ' › '));
   } else {
     $('catTitle').textContent = 'Delete “' + PATHS[id].split(' › ').pop() + '”'; form.action = '/categories/' + id + '/delete';
     $('fName').style.display = 'none'; $('fTarget').style.display = ''; $('catTarget').name = 'target_id';
     $('targetLbl').textContent = 'Move its ' + COUNTS[id] + ' transaction(s) and rules to';
     [...$('catTarget').options].forEach(o => o.disabled = PATHS[o.value] === PATHS[id] || PATHS[o.value].startsWith(PATHS[id] + ' › '));
+    const firstOk = [...$('catTarget').options].filter(o => !o.disabled && PATHS[id].startsWith(PATHS[o.value] + ' › '))
+      .sort((a, b) => PATHS[b.value].length - PATHS[a.value].length)[0];      // its own parent
+    if (firstOk) $('catTarget').value = firstOk.value;          // default: its parent
     $('catGo').className = 'btn btn-sm btn-danger';
   }
   m.show();
+  if (kind === 'add' || kind === 'rename')
+    document.getElementById('catModal').addEventListener('shown.bs.modal', () => $('catName').focus(), {once: true});
 }
+function underChanged() {
+  const v = $('catUnder').value; $('catParent').value = v;
+  $('fKind').style.display = v === 'top' ? '' : 'none';
+  $('catPath').textContent = v === 'top' ? '' : 'Under ' + PATHS[v];
+}
+$('catUnder').addEventListener('change', underChanged);
+(function () {                                   // search: show matching categories with the categories above them
+  const rows = [...document.querySelectorAll('.cat tbody tr')];
+  $('catSearch').addEventListener('input', e => {
+    const words = e.target.value.toLowerCase().split(/\s+/).filter(Boolean);
+    const keep = new Set(); let hits = 0;
+    rows.forEach(r => {
+      const a = r.querySelector('.cat-name'); a.dataset.name = a.dataset.name || a.textContent; a.textContent = a.dataset.name;
+      if (!words.length) return;
+      if (words.every(w => r.dataset.path.includes(w))) {
+        hits++; const p = r.dataset.path;
+        rows.forEach(x => { if (p === x.dataset.path || p.startsWith(x.dataset.path + ' › ') || x.dataset.path.startsWith(p + ' › ')) keep.add(x); });
+        a.innerHTML = HubPicker.hl(a.dataset.name, words);
+      }
+    });
+    rows.forEach(r => r.classList.toggle('hide', words.length > 0 && !keep.has(r)));
+    $('catHits').textContent = words.length ? (hits ? hits + ' found' : 'nothing found — use “Add a category”') : '';
+  });
+})();
 </script>
 {% endblock %}

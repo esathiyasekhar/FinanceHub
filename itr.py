@@ -41,7 +41,10 @@ def _sum_by_path(con, start, end, by_id, kind):
         n = by_id.get(r['category_id'])
         if not n:
             continue
-        p = n['path'].split(' › ')[1:] + ['', '', '']
+        full = n['path'].split(' › ')
+        p = full[1:] + ['', '', '']
+        if full[0] not in ('Income', 'Expenses', 'Transfers', 'Investments'):    # 1.9: the user's own top-level group
+            p[0] = f"{full[0]} › {p[0]}" if p[0] else full[0]                       # never mixed with a built-in head
         sign = 1 if (r['type'] == 'credit') == (kind == 'income') else -1
         out[tuple(p[:3])] += sign * r['amount']
     return out

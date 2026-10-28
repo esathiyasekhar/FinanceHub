@@ -1,8 +1,8 @@
 # Finance Hub — Design manual
 
-Version 1.8 · 28 October 2026 · Statement Reader engine v14 · internal, for maintainers
+Version 1.9 · 28 October 2026 · Statement Reader engine v14 · internal, for maintainers
 
-This manual explains how Finance Hub is built and why. It is written for developers and for an AI assistant continuing the work, and describes the 1.8 code in this repository. When code and manual disagree, the code wins and the manual is corrected in the same change. The user manual (docs/user/) covers the same features from the user's side.
+This manual explains how Finance Hub is built and why. It is written for developers and for an AI assistant continuing the work, and describes the 1.9 code in this repository. When code and manual disagree, the code wins and the manual is corrected in the same change. The user manual (docs/user/) covers the same features from the user's side.
 
 > **Note:** Names of modules, functions, tables and columns are written exactly as in the code. Examples use made-up values.
 
@@ -15,7 +15,7 @@ Finance Hub is a personal-finance web app for one person or one family. It reads
 - All data stays on the PC, encrypted at rest, readable only after log-in.
 - Import exactly what was previewed (parse, show, confirm). Only the mail reader imports on its own, and only when every check passes.
 - Prove the numbers: balance checks for statements, totals checks for contract notes, depository-versus-broker reconciliation.
-- Organise money by Type › Head › Sub-head › Item, by book (personal or the owner's company), person and account, counting each transfer once.
+- Organise money by Type › Head › sub-categories of any depth, by book (personal or the owner's company), person and account, counting each transfer once.
 - Run in the background (tray, start with Windows) and mail due-date reminders.
 - Install like a Windows program: program in Program Files, data in a separate folder; upgrade by running the newer setup; uninstall without touching the data (1.7).
 - Encrypted backups the user can keep off the PC (OneDrive, Google Drive or any folder) and restore on the same or a new PC (1.7).
@@ -24,7 +24,7 @@ Finance Hub is a personal-finance web app for one person or one family. It reads
 
 ### 1.2 Non-goals
 
-- No cloud service of its own, no sync, no mobile app, no aggregation APIs. Backups are files written into a local folder; when that folder belongs to OneDrive or Google Drive, their desktop app uploads it. The Hub never calls a cloud API. It connects only to the user's own mailbox (IMAP/SMTP over TLS; problem reports also go out through that SMTP account) and, on request, to Yahoo Finance through the optional yfinance package. The browser loads UI libraries from CDNs (11.4).
+- No cloud service of its own, no sync, no mobile app, no aggregation APIs. Backups are files written into a local folder; when that folder belongs to OneDrive or Google Drive, their desktop app uploads it. The Hub never calls a cloud API. It connects only to the user's own mailbox (IMAP/SMTP over TLS; problem reports also go out through that SMTP account) to Microsoft's sign-in service for Outlook mailboxes (8.5), to the public price files of NSE, BSE and AMFI (whole files, nothing about holdings is sent; 8.6) and, on Update now, to Yahoo Finance through the optional yfinance package. The browser loads UI libraries from CDNs (11.4).
 - No multi-tenant server: several users may exist, but one database is open at a time.
 - No payments, no writes to banks or brokers, no opening of links in mails, no tax filing (itr.py is a reference summary).
 
@@ -92,6 +92,7 @@ Why one worker thread: the database is a single in-memory SQLite connection (sec
 | scope.py | Viewing filter in the session | entities.role, aliases | /scope |
 | ledger.py | transfer links, director's account, reimbursements, loans with people | txn_links, reimb_claims, reimb_receipts, contacts, pl_loans, pl_moves | /links…, /director, /reimbursements…, /people-loans…, /contacts/save |
 | assets.py | asset types, holdings by broker | inv_asset_types | /investments/types…, /investments/brokers |
+| prices.py | automatic prices (1.9): NSE / BSE bhavcopy and AMFI NAV download in a thread, apply by ISIN / symbol, before_request hook after the log-in guard, scheduler tick (8.6) | inv_securities.cmp / cmp_date / cmp_source; inv_settings prices_auto, prices_applied, prices_result | — (POST /investments/prices) |
 | investments.py | broker files, trades, holdings, portfolio, tranching, instructions, HOOKS | inv_brokers, inv_securities, inv_imports, inv_trades, inv_holdings, inv_instructions, inv_settings | /investments and /investments/… |
 | contract_notes/ | contract-note readers and totals check | — | — |
 | depository.py | demat accounts, CAS reading, reconciliation | inv_demats | /investments/demat…, /report/demat/<fmt> |
@@ -385,7 +386,7 @@ Account names are keys: transactions.account = accounts.name, also loans.card, s
 | app | passwords | institution (unique), label, password, hint — statement passwords |
 | importer | statements | file_name, file_hash, bank, statement_type, accounts, period, statement and due dates, totals, check_status OK/MISMATCH/n/a, check_detail (JSON balance rows), reader_version |
 | accounts_hub | account_balances, networth_snapshots, hub_settings | manual balances (account_id, as_of); one snapshot per day; key/value: display_name, features_off, features_done (features), onboarding = 'done' (welcome) |
-| classifier, scope | categories, rules, entities, people | categories (parent_id, name, level 1–4, kind); rules (pattern, match_type contains/payee, category_id, display_name, entity, person); entities (name, role book/payer/other, aliases); people (name, aliases; 'Self' = owner's name variants) |
+| classifier, scope | categories, rules, entities, people | categories (parent_id, name, level 1 = Type, 2 = Head, 3… any depth since 1.9, kind); rules (pattern, match_type contains/payee, category_id, display_name, entity, person); entities (name, role book/payer/other, aliases); people (name, aliases; 'Self' = owner's name variants) |
 | planning | recurring, budgets, alert_state, month_close | recurring (name, match_key, amount, freq, next_date, account, rtype, status); monthly budget per category_id; snoozes; checklist per month and item |
 | ledger | txn_links, reimb_claims, reimb_receipts, contacts, pl_loans, pl_moves | links (out_id, in_id, counter_kind, counter_ref, kind, status suggested/confirmed/rejected, score, reason); claims and receipts per payer; loans with people (book, person, direction given/taken, due_date, status) and their moves (kind principal/repayment/interest/waived, mode, our_account, txn_id) |
 | refunds | txn_refunds | kind failed/refund/expected, debit_id, credit_id, status suggested/confirmed/rejected/waiting/received/closed, expected, follow_up_days, prev_debit_cat, prev_credit_cat |
@@ -398,7 +399,7 @@ Account names are keys: transactions.account = accounts.name, also loans.card, s
 
 ### 7.1 Tree and kinds
 
-classifier.TREE seeds four Types: Income (kind income), Expenses (expense), Transfers (transfer), Investments (investment). Levels: 1 Type › 2 Head › 3 Sub-head › 4 Item. Each node stores its kind; cat_move moves a subtree and gives it the new parent's kind; Types cannot be renamed, moved or deleted; nothing goes deeper than level 4. path_id() finds or creates a path. transactions.category holds the Head name (head_name, refreshed by _refresh_heads). Modules create nodes on demand (ledger EXTRA_NODES and PL_PATHS, refunds FAILED_PATH, Transfers › Reimbursable › <payer>).
+classifier.TREE seeds four Types: Income (kind income), Expenses (expense), Transfers (transfer), Investments (investment). Levels: 1 Type › 2 Head › 3 Sub-head › 4 Item. Each node stores its kind; cat_move moves a subtree and gives it the new parent's kind; the four built-in Types (a root whose name is in classifier.KINDS) cannot be renamed, moved or deleted. Since 1.9 there is no depth limit (_new_child, cat_move), names are unique per parent (case-insensitive on add), and users may add their own top-level groups with a chosen kind (_new_root, parent_id 'top'); such groups can be renamed, moved under another category and deleted. Code that reads levels treats 2 as Head and 3 as Sub-head; amounts in deeper categories roll up into their ancestors (_aggregate walks parent_id; budgets and planning climb to the Head); breakdown totals add up every root of a kind; the Excel breakdown fonts default for deep levels. Names: runs of spaces collapse, '›' becomes '-' (it separates levels in paths), at most 80 characters, unique per parent ignoring case (add, rename and move). Exports keep Type, Head, Sub-head and join deeper levels into Item (organise._levels). The ITR summary keys heads under a user's own top-level group as '<group> › <head>' so they never mix with built-in heads. _refresh_heads sets transactions.category to the Head, or to the Type for rows sitting on a Type. POST /categories/add also accepts JSON ({parent_id, name, next: 'json'} → {ok, id, path, level, kind}) for the picker. path_id() finds or creates a path. transactions.category holds the Head name (head_name, refreshed by _refresh_heads). Modules create nodes on demand (ledger EXTRA_NODES and PL_PATHS, refunds FAILED_PATH, Transfers › Reimbursable › <payer>).
 
 ### 7.2 Rule order
 
@@ -546,6 +547,16 @@ Outlook.com stopped accepting passwords and app passwords for IMAP/SMTP (basic a
 - **IMAP / SMTP.** IMAP outlook.office365.com:993, AUTHENTICATE XOAUTH2 with "user=<addr>^Aauth=Bearer <token>^A^A". SMTP smtp-mail.outlook.com:587 STARTTLS, EHLO, AUTH XOAUTH2 (notify.send_mail; smtp_for adds an 'oauth' dict with client_id, tenant, refresh). The outbox (10.2) therefore holds the refresh token instead of a password, under the same DPAPI protection.
 - **Not logged.** Codes, tokens and the client ID are never written to the log; the page shows only "Signed in with Microsoft ✓".
 
+### 8.6 Automatic prices (prices.py, 1.9)
+
+- **Sources.** NSE capital-market bhavcopy in UDiFF format (nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_<YYYYMMDD>_F_0000.csv.zip), the BSE equivalent (www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_<YYYYMMDD>_F_0000.CSV) and AMFI NAVAll.txt (portal.amfiindia.com, then www.amfiindia.com). Browser-like User-Agent and the exchange's Referer; 40 MB cap; _get is replaced by the tests. Exchange files are tried for today and back over up to 7 calendar days (weekdays only) until one exists — 404 before publication and holidays are normal; any other error (timeout, refused) ends that source at once. The three sources are fetched in parallel (20 s per request).
+- **Parsing.** parse_bhav reads the header and finds columns by name (ISIN, ClsPric / CLOSE…, TckrSymb / SYMBOL, SctySrs / SERIES, TradDt…), so the older CSV layouts still parse; zip or plain CSV; rows of other segments are skipped; for an ISIN with several series the regular-market series (EQ, BE, GB, RR, IV, BSE A/B/T/X/Z…) wins. parse_amfi is header-driven too (AMFI added Plan and Option columns) and takes both the growth / payout and the reinvestment ISIN; "N.A." NAVs are skipped.
+- **Merging (fetch).** Per ISIN the newest date wins; on the same date NSE beats BSE. An AMFI NAV replaces an exchange price only when it is more than 4 days newer, so ETFs keep their market price. A symbol index (exchange, symbol) serves securities without an ISIN.
+- **Applying (apply).** Matched by ISIN; else by symbol on the security's own exchange; a security without an ISIN may also match the other exchange. A price is written only if its date is not older than cmp_date, and a manual price is replaced only by a strictly newer date. cmp_source becomes "NSE close", "BSE close" or "AMFI NAV". Returns the number of rows changed; unchanged prices are not rewritten (no needless re-encryption).
+- **When.** prices.register adds a before_request hook after auth's guard (it needs g.user), for GET pages outside /api/. auto(con): if inv_settings.prices_auto is not '0' and the investments feature is on, write CACHE['data'] once per download (inv_settings.prices_applied = its timestamp, prices_result = a summary line) and call start_background(), which starts a daemon thread when the cache is older than 3 hours (30 minutes when a source failed last time). The thread only downloads and parses public files; it never touches a database. notify's scheduler calls tick() every minute: while WANTED (set by auto for the last logged-in user with prices on) it refreshes stale prices even while locked, so they are ready at the next log-in. FINANCEHUB_PRICES=0 (set by tests/_common) disables all downloads.
+- **Update now** (POST /investments/prices) waits up to 60 s for a forced download, applies it, then tries yfinance (if installed) for securities whose price is missing or older than 7 days, and flashes each source's status. The same route with auto=0/1 sets the switch.
+- Securities with no market data (unlisted bonds, deposits, schemes) keep prices from holdings files or the user.
+
 ## 9. Ledger features
 
 ### 9.1 Transfer links
@@ -639,7 +650,11 @@ A report is {title, subtitle, sections}; a section is 'kv' (label/value rows) or
 
 ### 11.4 External assets
 
-base.html and auth_base.html load Bootstrap 5.3.2, Bootstrap Icons, Chart.js 4.4.1, jQuery 3.7.1 and DataTables from cdnjs, and the Inter font from Google Fonts, without integrity attributes.
+base.html and auth_base.html load Bootstrap 5.3.2, Bootstrap Icons, Chart.js 4.4.1, jQuery 3.7.1 and DataTables from cdnjs, and the Inter font from Google Fonts, without integrity attributes. static/js/picker.js (1.9) is the Hub's own.
+
+### 11.4a Searchable pickers (static/js/picker.js, 1.9)
+
+Any `<select data-picker>` is wrapped: the select stays (hidden, with its name, value and change event) and a button opens a panel with a search box. Every typed word must occur in the option's data-path (built from the indentation of the label when missing); matches are highlighted; ↑ ↓ Enter Esc work; disabled options show but cannot be chosen (the Categories move / delete dialogs disable them before opening). The select's value property is redefined on the element so that code setting select.value also updates the button. data-picker-add="1" offers "Add “…” under <current choice>" when nothing matches by name; it POSTs JSON to /categories/add and inserts the new option into every picker on the page that lists categories. Used on Transactions (filter, edit window, bulk), Payee rules and Categories (Under, move / delete target). The Categories page also has its own row search (catSearch) that keeps ancestors and descendants of matches visible.
 
 ### 11.5 First-start setup wizard (welcome.py)
 
@@ -701,10 +716,11 @@ _build(): diagnostics() if diag == '1'      (default on)
 | Administrator reading another user's data (escrow) | the escrow private key exists only wrapped with each admin's DEK; non-admins hold no escrow_key and demotion removes it; a reset sets must_change and the old password stops working; disclosed on the Users page | any admin can decrypt any user's escrow_dek offline, from users.json alone, without a trace, and with that DEK every past and future backup of the user; the DEK is never rotated |
 | Malicious mail | allowlist, header-first fetch, type and size limits, own parsers only, no links followed, HTML never rendered (alerts kept as stripped text), auto-import only when every check passes | bugs in pdfplumber, pikepdf, openpyxl, xlrd; a hostile but validly signed mail from an allowed domain |
 | Look-alike senders | exact or subdomain match; DMARC or aligned DKIM from the topmost Authentication-Results; mx.google.com required for Gmail; forwarded mails never auto-import | non-Gmail hosts: any topmost header is trusted; broad entries such as bank.in |
-| Stolen app password | kept only in the encrypted database and the DPAPI outbox; dedicated mailbox advised; Hub reads (BODY.PEEK), labels, sends to set recipients | an app password gives full mailbox access until revoked; no OAuth |
-| Localhost server | binds 127.0.0.1; Waitress clears untrusted proxy headers; next checked at log-in and profile | no CSRF tokens or SameSite cookie; /logout and /scope change state on GET; CDN assets without integrity |
+| Stolen app password or Microsoft refresh token | kept only in the encrypted database and the DPAPI outbox; dedicated mailbox advised; Outlook uses OAuth with only IMAP / SMTP / offline scopes and can be signed out (8.5); Hub reads (BODY.PEEK), labels, sends to set recipients | an app password gives full mailbox access until revoked; a refresh token until it expires or is withdrawn |
+| Localhost server | binds 127.0.0.1; Waitress clears untrusted proxy headers; next checked at log-in and profile | no CSRF tokens (SameSite=Strict cookie instead); /logout and /scope change state on GET; CDN assets without integrity |
 | Forgotten password | recovery key wraps the same DEK; an admin can reset through the escrow (only for users who logged in once under 1.7, and not for oneself) | losing both, with no other admin holding escrow_key, loses the data |
 | Backups in a cloud folder | .fhb holds only ciphertext plus the wrapped keys of its time; written to a local folder, uploaded by the sync app; sha256 per part and AES-GCM tags checked on restore; a safety backup precedes every restore | offline guessing against the wrapped key; old passwords and recovery keys open old backups; manifest and file name show user ID and times; the cloud account's own security is out of scope |
+| Price downloads (1.9) | whole public files fetched over HTTPS from fixed NSE, BSE and AMFI URLs, nothing about holdings in the request; size cap 40 MB; parsed as CSV / text only, numbers validated; a source that fails is reported and skipped; only cmp, cmp_date, cmp_source are written | a wrong or spoofed file (e.g. a compromised exchange site or TLS interception by local software) would show wrong prices until the next file; NSE may refuse non-browser downloads (BSE / yfinance then fill in) |
 | Problem reports | sent only on a click, after a preview of the exact text; diagnostics are versions, switches and counts; log lines scrubbed (12.2); no files attached; sent through the user's own mailbox or mail program | names, short numbers and file names pass the scrub |
 | Installer | release zip checked against MANIFEST.sha256; absolute, drive and .. paths refused; only the program-folder part runs elevated, and it is waited for; shortcuts and the Run key are written unelevated | the manifest is not signed (it detects damage, not a replaced setup package); Setup.cmd runs whichever py / python is first on PATH; the elevated part runs setup.pyw from the user-writable setup folder |
 
@@ -804,6 +820,7 @@ install_program(program, data, import_from, packages, log, grant_user)
 | test_1_6.py | help chapters (endpoints, links, PDF, design pages if DESIGN.md exists), refunds, reminder outbox, timing, no double send, sent-log privacy, Home redirect to /welcome, features, launcher pieces |
 | test_1_7.py | separate data folder via FINANCEHUB_DATA (nothing written to the program folder); escrow fields; admin reset, must_change and /account/password; own rename; a member cannot reset; rename_other; promotion grants escrow_key; backup save, now and download (no plaintext in the file), restore with the same key, safety copy, still logged in, damaged file refused, run_due due and not again; restore_fresh on a new Vault, refused a second time and with a wrong password; scrub; support page, download, mailto and send with a fake SMTP; 500 page with error reference; the setup wizard's five steps, what they write, shown once |
 | test_1_8.py | oauth_ms against a fake Microsoft endpoint (device code, pending → ok, cached and rotated tokens keyed by the token presented, no token → no access, forget(), invalid_grant, consumers fallback, friendly texts, XOAUTH2 string, id_token account); Gmail app-password advice; migration of the 1.7 mailbox (no password left in mail_settings); adding an Outlook mailbox and signing in through the routes; check_mail over two mailboxes with Gmail- and Microsoft-style Authentication-Results, mailbox_id tagging, a mail in both read once, rotated refresh token saved; pause; SMTP with password vs XOAUTH2 on 587 after send_from; sign-out, edit keeps the password, remove moves send_from; signed in as another account → warning; empty label leaves Outlook mails untouched; custom port kept; switching away from Outlook forgets the sign-in; wizard defaults unknown domains to Gmail and stores no Outlook password |
+| test_1_9.py | categories seven and eight levels deep, duplicate names refused, JSON add, own top-level group with a kind, move a deep branch under it (kind and Head refreshed), move into itself refused, delete with transactions moved, Types fixed; transactions, breakdown (screen and Excel), rules, budgets and Ctrl+K with deep categories; pickers on the pages and picker.js served; prices from fake NSE (zip) / BSE (csv) / AMFI files: lookback over unpublished days, NSE over BSE, EQ over block series, ETF market price over NAV, SGB and bond, symbol match without ISIN, manual and newer prices kept, nothing rewritten; background download after a page and applied on the next; switch off, scheduler idle, Update now, feature off, offline sources |
 | test_installer.py | make_release (--skip-tests --allow-findings) builds the Setup zip; silent install with --no-packages into temporary program and data folders, bringing over an old portable Vault; financehub.json; a subprocess in the installed folder finds its data and logs in; upgrade removes a stale file and keeps data; import into a folder with users is refused; a tampered release is refused; uninstall keeps data; the wizard's page flow through tests/_tkstub |
 
 To add a test: create tests/test_<topic>.py; call `SP = fresh('<topic>')` before importing app; drive A.app.test_client() after posting /setup and /login, or use A.app.test_request_context() with A.get_db(); fake external services by replacing mailreader.Imap or oauth_ms._post, passing a factory to check_mail or notify.run_due, or setting app.config HUB_SMTP_FACTORY; assert, then run tests/run_all.py.
@@ -847,6 +864,7 @@ Create docs/user/NN-slug.md with "# Title", endpoints and icon comments, the Mar
 
 - Alert mails into provisional entries: attachment-less mails are already kept (status alert, sealed text) for a reader that will create provisional transactions, later matched with statement rows.
 - Exchange holidays for T+1: settles_by skips only weekends, so trades before a holiday look in transit a day too long.
+- Intraday prices (today's files are end of day only); prices for unlisted bonds.
 - Google sign-in (OAuth) for Gmail too, instead of app passwords: Outlook uses OAuth since 1.8 (8.5); Gmail's IMAP scope needs a Google-verified app, so app passwords stay for now.
 - More bank, card and broker readers as samples arrive.
 - A compiled installer: today the .exe (Inno Setup) is optional and still needs Python; bundling a Python runtime would remove that step.
@@ -935,3 +953,18 @@ Found by an independent review of the 1.8 change and fixed before release:
 | the access-token cache was keyed by client ID + address and preferred over the stored token, so another Hub user adding the same address could use it | TOKENS is keyed only by the refresh token presented; forget() on lock |
 | mails read before 1.8 could be credited to whichever mailbox was checked first | the migration assigns them to the migrated mailbox |
 | signing in with a different Microsoft account than the mailbox address failed later with a misleading message | the id_token's account is compared and the page warns |
+
+### 17.6 Review findings (1.9)
+
+Found by an independent review of the 1.9 change and fixed before release:
+
+| Finding | Fix |
+|---|---|
+| deleting a category offered the Type, not its parent, as the default target; rows moved onto a Type kept the deleted head's name | the longest ancestor (its parent) is chosen; _refresh_heads also covers rows on a Type |
+| Update now could time out: each source walked back a week of 30 s timeouts, one source after another | only a 404 walks back a day; sources run in parallel; 20 s per request; retry after 30 minutes when a source failed |
+| exports cut the path at four levels, so deeper rows repeated their parent | deeper levels are joined into the Item column |
+| search highlighting replaced inside already-highlighted HTML | one pass over the plain text (HubPicker.hl), then escaped |
+| rename / move compared names case-sensitively; names could contain the path separator '›' | case-insensitive everywhere; '›' replaced by '-' |
+| ITR summary mixed a head under the user's own income group with a built-in head of the same name | user groups are keyed '<group> › <head>' |
+| a holding whose ISIN changed was never priced | symbol match on its own exchange as a fallback |
+| AMFI file with a byte-order mark would parse as empty | decoded as utf-8-sig |

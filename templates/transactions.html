@@ -50,9 +50,9 @@
     <div class="col-6 col-md-2"><label>From</label><input type="date" name="start" class="form-control form-control-sm" value="{{ f.start }}"></div>
     <div class="col-6 col-md-2"><label>To</label><input type="date" name="end" class="form-control form-control-sm" value="{{ f.end }}"></div>
     <div class="col-6 col-md-3"><label>Category (includes everything under it)</label>
-      <select name="cat" class="form-select form-select-sm">
+      <select name="cat" class="form-select form-select-sm" data-picker>
         <option value="">All</option>
-        {% for o in cat_options %}<option value="{{ o.id }}" {% if f.cat|string==o.id|string %}selected{% endif %}>{{ o.label }}</option>{% endfor %}
+        {% for o in cat_options %}<option value="{{ o.id }}" data-path="{{ o.path }}" {% if f.cat|string==o.id|string %}selected{% endif %}>{{ o.label }}</option>{% endfor %}
       </select></div>
     <div class="col-6 col-md-2"><label>Account</label>
       <select name="account" class="form-select form-select-sm"><option value="">All</option>
@@ -127,8 +127,8 @@
   <div class="row g-2 align-items-end">
     <div class="col-12 col-md-2"><strong id="bulkN">0</strong> selected</div>
     <div class="col-12 col-md-4"><label class="lbl" style="font-size:.7rem;color:var(--muted)">Set category</label>
-      <select id="bulkCat" class="form-select form-select-sm"><option value="">— keep —</option>
-        {% for o in cat_options %}<option value="{{ o.id }}">{{ o.label }}</option>{% endfor %}</select></div>
+      <select id="bulkCat" class="form-select form-select-sm" data-picker data-picker-add="1"><option value="">— keep —</option>
+        {% for o in cat_options %}<option value="{{ o.id }}" data-path="{{ o.path }}">{{ o.label }}</option>{% endfor %}</select></div>
     <div class="col-6 col-md-2"><label style="font-size:.7rem;color:var(--muted)">Set entity</label>
       <select id="bulkEnt" class="form-select form-select-sm"><option value="">— keep —</option>
         {% for e in entities %}<option>{{ e }}</option>{% endfor %}</select></div>
@@ -170,12 +170,12 @@
         <div class="row g-2">
           <div class="col-12"><label class="lbl">Name (how it shows everywhere)</label>
             <input id="mName" class="form-control form-control-sm" placeholder="e.g. Petrol – Bala Sai fuel station"></div>
-          <div class="col-md-8"><label class="lbl">Category — Type › Head › Sub-head › Item</label>
-            <select id="mCat" class="form-select form-select-sm">
+          <div class="col-md-8"><label class="lbl">Category — type to search</label>
+            <select id="mCat" class="form-select form-select-sm" data-picker data-picker-add="1">
               {% for o in cat_options %}<option value="{{ o.id }}" data-level="{{ o.level }}" data-path="{{ o.path }}">{{ o.label }}</option>{% endfor %}
             </select>
             <div class="text-muted mt-1" style="font-size:.72rem" id="mPath"></div></div>
-          <div class="col-md-4"><label class="lbl">…or add a new item under it</label>
+          <div class="col-md-4"><label class="lbl">…or add a new sub-category under it</label>
             <input id="mNewItem" class="form-control form-control-sm" placeholder="new name (optional)"></div>
           <div class="col-md-4"><label class="lbl">Entity</label>
             <select id="mEnt" class="form-select form-select-sm">{% for e in entities %}<option>{{ e }}</option>{% endfor %}</select></div>

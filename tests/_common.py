@@ -10,6 +10,9 @@ IGNORE = shutil.ignore_patterns('__pycache__', '.git', '.venv', 'data', 'users.j
                                 'finance.db*', 'tests', 'financehub.json')
 
 
+os.environ.setdefault('FINANCEHUB_PRICES', '0')      # no price downloads from the tests (test_1_9 fakes them)
+
+
 def fresh(name):
     """Copy the program to a new temp folder, make it the working folder and import path. → folder (str)"""
     root = Path(tempfile.mkdtemp(prefix=f'fh_{name}_'))

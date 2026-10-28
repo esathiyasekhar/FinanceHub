@@ -29,7 +29,7 @@ Broker and depository PDFs usually open with your PAN. With **save it** ticked, 
 
 ## The portfolio
 
-Open **Portfolio & plan**. The buttons at the top are **Import broker file**, **Trades**, **Add stock to plan** and **Refresh prices**.
+Open **Portfolio & plan**. The buttons at the top are **Import broker file**, **Trades**, **Add stock to plan**, the **Update prices automatically** switch and **Update prices now**.
 
 - The broker buttons show one broker's holdings. The type buttons show one asset type.
 - The tiles show **Current value**, **Unrealised P&L** with realised profit, your **Core / Satellite** split against its target, and the **Capital for % limits**.
@@ -39,7 +39,22 @@ Cost is the weighted average of your buys, including charges. If a holdings file
 
 If you sold shares bought before your first imported file, a warning lists them. Add the opening holding on the Trades page so cost and profit are right.
 
-**Refresh prices** fetches the latest prices when your PC supports it; if not, the Hub tells you, and prices come from your files or the price you type.
+## Prices
+
+The Hub keeps prices up to date by itself. It downloads the exchanges' and AMFI's public end-of-day files and looks up your holdings in them **on your PC** — nothing about your holdings is sent anywhere.
+
+| What | Price used | From |
+|---|---|---|
+| Shares, ETFs, REITs, InvITs | Closing price | NSE bhavcopy (BSE for BSE-only shares) |
+| Sovereign Gold Bonds, listed bonds and debentures | Closing price on days they trade | NSE / BSE bhavcopy |
+| Mutual funds | Latest NAV | AMFI |
+
+- With **Update prices automatically** on (the default), the Hub downloads the files in the background while you use it — at most every 3 hours — and updates the prices on your next page. Exchange files appear in the evening of each trading day; AMFI NAVs late at night.
+- **Update prices now** downloads at once and says what each source gave, for example "NSE: 2,950 prices of 27 Oct 2026". Anything the files do not have is tried with the optional yfinance package, if it is installed.
+- Holdings are matched by **ISIN**; a holding without an ISIN is matched by its symbol. An ETF uses its market price rather than its NAV. A newer price never gets replaced by an older one, and a price you type on the stock page stays until a newer market price arrives.
+- The price line under the buttons shows when prices were last updated and from where. The stock page shows each price's source and date.
+- Bonds that did not trade, deposits, PPF and other schemes have no market price; their values come from your files or what you type.
+- Turn the switch off to stop the downloads; turning off the **Stocks, ETFs & brokers** feature also stops them.
 
 ## The tranching plan
 
