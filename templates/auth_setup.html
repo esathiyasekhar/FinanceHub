@@ -6,7 +6,7 @@
   their password, can open it — a copy of the files is unreadable.</p>
 {% if copies %}<div class="alert alert-warning py-2 px-3" style="font-size:.8rem"><i class="bi bi-exclamation-triangle me-1"></i>
   Found <b>{{ copies|length }}</b> unencrypted file{{ 's' if copies|length != 1 }} from earlier versions (old databases, backups,
-  uploaded statements). As you asked, the Hub starts clean: they are overwritten and deleted when you continue.</div>{% endif %}
+  uploaded statements). They are overwritten and deleted when you continue, so only encrypted data remains.</div>{% endif %}
 <form method="post" autocomplete="off">
   <label class="form-label">Your name (shown in the Hub — stored only inside your encrypted data)</label>
   <input name="full_name" class="form-control mb-3" required autofocus maxlength="60" placeholder="e.g. Ravi Kumar">
@@ -20,5 +20,5 @@
   <button class="btn btn-cta w-100"><i class="bi bi-shield-lock me-1"></i>Create my encrypted Hub</button>
 </form>
 <p class="muted mt-3 mb-0" style="font-size:.74rem">Next you'll get a one-time <b>recovery key</b>. If every password is forgotten,
-  only the recovery key can open the data — nobody else (including me) can.</p>
+  only the recovery key can open the data — nobody else can.</p>
 {% endblock %}

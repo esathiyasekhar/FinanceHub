@@ -1,0 +1,9 @@
+{% extends "auth_base.html" %}
+{% block title %}Something went wrong – Finance Hub{% endblock %}
+{% block sub %}Your data is safe{% endblock %}
+{% block body %}
+<p style="font-size:.9rem">Something went wrong while doing that. Your saved data is safe and stays encrypted — go back and try again.</p>
+<p class="muted" style="font-size:.82rem">Details for troubleshooting are in <code>logs\hub.log</code> inside the Finance Hub folder
+  (the log never contains passwords or statement contents).</p>
+<a class="btn btn-cta w-100" href="{{ url_for('home') }}">Back to the Hub</a>
+{% endblock %}

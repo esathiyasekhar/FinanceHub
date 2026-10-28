@@ -868,8 +868,9 @@ def register(app, get_db, upload_dir: Path):
         con = con_()
         f = request.form
         sym = _clean_symbol(f.get('symbol', ''))
-        if not (sym and f.get('date') and _num(f.get('qty')) and _num(f.get('price'))):
-            flash('Symbol, date, quantity and price are required.', 'warning')
+        price_ok = _num(f.get('price')) > 0 or (f.get('side', 'buy') == 'buy' and str(f.get('price', '')).strip() in ('0', '0.0', '0.00'))
+        if not (sym and f.get('date') and _num(f.get('qty')) and price_ok):
+            flash('Symbol, date, quantity and price are required (price 0 is allowed for bonus shares).', 'warning')
             return redirect(url_for('inv_trades'))
         sid = security_id(con, sym, f.get('isin', '').strip())
         con.execute("INSERT INTO inv_trades (broker_id, security_id, trade_date, side, qty, price, charges, source, notes) "

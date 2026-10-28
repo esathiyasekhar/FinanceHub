@@ -480,7 +480,8 @@ def register(app, get_db):
             return {'reimb_payers': []}
 
     def _back(default):
-        nxt = request.form.get('next') or ''
+        from webutil import safe_next
+        nxt = safe_next(request.form.get('next'), '')
         return redirect(nxt if nxt.startswith('/') else default)
 
     def links_page():
@@ -595,8 +596,10 @@ def register(app, get_db):
             cid = C.path_id(con, path, create=True)
             con.execute(f"UPDATE transactions SET reimb_payer=?, manual=1, category_id=?, category=? WHERE type='debit' AND id IN ({ph})",
                         (payer, cid, C.head_name(con, cid), *ids))
+        n = con.execute(f"SELECT COUNT(*) FROM transactions WHERE id IN ({ph})" + ('' if clear else " AND type='debit'"), ids).fetchone()[0]
         con.commit()
-        msg = f"{len(ids)} transaction{'s' if len(ids) != 1 else ''} {'cleared' if clear else 'marked to claim from ' + payer}."
+        msg = f"{n} transaction{'s' if n != 1 else ''} {'cleared' if clear else 'marked to claim from ' + payer}." + \
+            ('' if clear or n == len(ids) else ' (money coming in cannot be claimed and was left as it was)')
         if request.is_json:
             return jsonify({'ok': True, 'msg': msg})
         flash(msg, 'success')
@@ -623,7 +626,9 @@ def register(app, get_db):
         tid = int(f.get('txn'))
         payer = f.get('payer')
         if f.get('action') == 'fee':
-            con.execute('UPDATE transactions SET reimb_payer=NULL WHERE id=?', (tid,))
+            # 1.6: back to normal income — the automatic rules decide its category again
+            con.execute('UPDATE transactions SET reimb_payer=NULL, reimb_claim=NULL, manual=0 WHERE id=?', (tid,))
+            C.apply_to_rows(con, 'id=?', (tid,), commit=False)
         elif f.get('action') == 'receipt':
             path = (T, 'Reimbursable', payer, 'Reimbursement received')
             cid = C.path_id(con, path, create=True)

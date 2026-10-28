@@ -313,7 +313,7 @@ def _ratio_hint(a, b):
         for r, txt in ((2, 'bonus 1:1 or split 1:2'), (3, 'bonus 2:1'), (5, 'split 1:5'), (10, 'split 1:10'),
                        (1.5, 'bonus 1:2'), (4, 'split 1:4')):
             if abs(a / b - r) < 1e-6:
-                return f'demat holds {r:g}× — looks like a {txt}; add it on the Trades page'
+                return f'demat holds {r:g}× — looks like a {txt}; add the extra shares on the Trades page as a buy at price 0'
             if abs(b / a - r) < 1e-6:
                 return f'demat holds 1/{r:g} — check for a consolidation, or sales not imported'
     return ''
@@ -463,8 +463,12 @@ def register(app, get_db):
 
     def demat_delete(did):
         con = con_()
+        imports = [r[0] for r in con.execute('SELECT DISTINCT import_id FROM inv_holdings WHERE demat_id=? AND import_id IS NOT NULL', (did,))]
         con.execute('DELETE FROM inv_holdings WHERE demat_id=?', (did,))
         con.execute('DELETE FROM inv_demats WHERE id=?', (did,))
+        for iid in imports:          # 1.6: so the same statement can be imported again later
+            if not con.execute('SELECT 1 FROM inv_holdings WHERE import_id=?', (iid,)).fetchone():
+                con.execute('DELETE FROM inv_imports WHERE id=?', (iid,))
         con.commit()
         flash('Demat account and its statement holdings removed.', 'info')
         return redirect(url_for('demat_page'))

@@ -69,6 +69,16 @@
       <form method="post" action="{{ url_for('recovery_new') }}" class="mt-2" onsubmit="return confirm('Make a new recovery key? The old one stops working.')">
         <button class="btn btn-sm btn-soft"><i class="bi bi-key me-1"></i>New recovery key</button></form>
     </div>
+    <div class="hub-card mb-3 tone-blue">
+      <h6><i class="bi bi-cpu me-2 t-tone"></i>Running</h6>
+      <div class="list-row" style="font-size:.84rem"><span class="muted">Version</span><b class="ms-auto">Finance Hub {{ hub_version }}</b></div>
+      <div class="list-row" style="font-size:.84rem"><span class="muted">Server</span><b class="ms-auto">{{ hub_server_kind or 'command window (python app.py)' }}</b></div>
+      <div class="list-row" style="font-size:.84rem"><span class="muted">Backups of your encrypted data</span><b class="ms-auto">{{ hub_backups.n }}{% if hub_backups.last %} · last {{ hub_backups.last }}{% endif %}</b></div>
+      <div class="muted" style="font-size:.74rem">A backup is taken automatically the first time a new version starts (the newest 10 are kept, in the <code>backups</code> folder). Logs are in <code>logs\hub.log</code>.</div>
+      {% if hub_launcher and hub_autostart is not none %}
+      <form method="post" action="{{ url_for('app_autostart') }}" class="mt-2"><input type="hidden" name="on" value="{{ '0' if hub_autostart else '1' }}">
+        <button class="btn btn-sm btn-soft"><i class="bi bi-{{ 'toggle-on text-success' if hub_autostart else 'toggle-off' }} me-1"></i>Start with Windows: {{ 'on' if hub_autostart else 'off' }}</button></form>{% endif %}
+    </div>
     {% if is_admin %}<div class="hub-card {{ 'tone-amber' if copies else 'tone-green' }}">
       <h6><i class="bi bi-file-earmark-x me-2 t-tone"></i>Unencrypted copies in the app folder</h6>
       {% if copies %}

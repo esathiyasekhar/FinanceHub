@@ -1,0 +1,76 @@
+{% extends "base.html" %}
+{% block title %}Failed & refunds – Finance Hub{% endblock %}
+{% block page_title %}Failed payments &amp; refunds{% endblock %}
+{% block content %}
+<div class="hub-card mb-3 tone-indigo">
+  <div class="d-flex flex-wrap align-items-center gap-3">
+    <div class="kpi p-0 border-0" style="box-shadow:none"><div class="ico"><i class="bi bi-arrow-counterclockwise"></i></div></div>
+    <div class="flex-grow-1" style="font-size:.84rem">The Hub looks for <b>payments that failed and came back</b> (same amount, same account, a reversal
+      a few days later) and for <b>refunds of purchases</b>. Confirm a failed pair and neither side counts as spending or income;
+      confirm a refund and it goes into the purchase's category, so that spending goes down. Purchases you are
+      <b>waiting to get back</b> are tracked until the money arrives.</div>
+    {% if added %}<span class="chip tone-violet">{{ added }} new suggestion{{ 's' if added != 1 }}</span>{% endif %}
+  </div>
+</div>
+<div class="row g-3 mb-3">
+  <div class="col-6 col-lg-3"><div class="hub-card kpi hero tone-amber h-100"><div class="lbl">Waiting to get back</div><div class="val">{{ s.waiting_amt|inr }}</div>
+    <div class="sub">{{ s.waiting }} purchase{{ 's' if s.waiting != 1 }}{% if s.late %} · <b>{{ s.late }} overdue</b>{% endif %}</div></div></div>
+  <div class="col-6 col-lg-3"><div class="hub-card kpi tone-violet h-100"><div class="lbl">To confirm</div><div class="val">{{ s.suggested }}</div><div class="sub">suggestions</div></div></div>
+  <div class="col-6 col-lg-3"><div class="hub-card kpi tone-green h-100"><div class="lbl">Refunds received</div><div class="val">{{ s.refunded|inr }}</div><div class="sub">confirmed</div></div></div>
+  <div class="col-6 col-lg-3"><div class="hub-card kpi tone-slate h-100"><div class="lbl">Failed &amp; reversed</div><div class="val">{{ s.failed }}</div><div class="sub">pairs kept out of totals</div></div></div>
+</div>
+<div class="pill-tabs mb-3">
+  <a href="{{ url_for('refunds_page', tab='suggested') }}" class="tone-violet {{ 'active' if tab == 'suggested' }}">To confirm<span class="n">{{ s.suggested }}</span></a>
+  <a href="{{ url_for('refunds_page', tab='waiting') }}" class="tone-amber {{ 'active' if tab == 'waiting' }}">Awaiting refund<span class="n">{{ s.waiting }}</span></a>
+  <a href="{{ url_for('refunds_page', tab='done') }}" class="tone-teal {{ 'active' if tab == 'done' }}">Confirmed &amp; closed</a>
+  <a href="{{ url_for('refunds_page', tab='rejected') }}" class="tone-slate {{ 'active' if tab == 'rejected' }}">Not matches</a>
+</div>
+{% if tab == 'waiting' %}<div class="muted mb-2" style="font-size:.78rem"><i class="bi bi-info-circle me-1"></i>Add a purchase here from <a href="{{ url_for('transactions') }}">Transactions</a>
+  (click the row → <b>More</b> → <b>Expecting a refund</b>). When a matching credit arrives in a statement it is suggested under <i>To confirm</i>.</div>{% endif %}
+<div class="hub-card p-0" style="overflow:hidden">
+  <div class="table-responsive"><table class="table table-sm align-middle mb-0">
+    <thead><tr><th>Kind</th><th>Money out</th><th>Money back</th><th>Why / status</th><th class="text-end"></th></tr></thead>
+    <tbody>{% for r in rows %}
+      <tr>
+        <td><span class="chip tone-{{ {'failed': 'red', 'refund': 'green', 'expected': 'amber'}[r.kind] }}">{{ {'failed': 'Failed & reversed', 'refund': 'Refund', 'expected': 'Awaiting refund'}[r.kind] }}</span></td>
+        <td style="font-size:.8rem">{% if r.debit_id %}<b class="num">{{ r.d_amt|inr }}</b> <span class="muted">{{ r.d_date|short_date }} · {{ r.d_acct }}</span>
+          <div class="muted text-truncate" style="font-size:.72rem;max-width:300px" title="{{ r.d_desc }}">{{ r.d_name or r.d_desc }}</div>{% endif %}</td>
+        <td style="font-size:.8rem">{% if r.credit_id %}<b class="num" style="color:var(--amount-in)">{{ r.c_amt|inr }}</b> <span class="muted">{{ r.c_date|short_date }} · {{ r.c_acct }}</span>
+          <div class="muted text-truncate" style="font-size:.72rem;max-width:300px" title="{{ r.c_desc }}">{{ r.c_name or r.c_desc }}</div>
+          {% elif r.kind == 'expected' %}<span class="muted">expecting {{ (r.expected or r.d_amt)|inr }}</span>{% endif %}</td>
+        <td style="font-size:.76rem">{{ r.reason or '' }}{% if r.note %}<div class="muted">{{ r.note }}</div>{% endif %}
+          {% if r.kind == 'expected' and r.status == 'waiting' %}<div class="{{ 'text-danger fw-semibold' if r.late else 'muted' }}">waiting {{ r.age }} days{{ ' — follow up' if r.late }}</div>{% endif %}</td>
+        <td class="text-end text-nowrap">
+          <form method="post" action="{{ url_for('refund_act', rid=r.id) }}" class="d-inline"><input type="hidden" name="tab" value="{{ tab }}">
+          {% if r.status == 'suggested' %}
+            <button class="btn btn-sm btn-primary" name="action" value="confirm" title="{{ 'Yes, I am waiting for this' if r.kind == 'expected' else 'Confirm' }}"><i class="bi bi-check2"></i></button>
+            <button class="btn btn-sm btn-soft text-danger" name="action" value="reject" title="Not a match"><i class="bi bi-x-lg"></i></button>
+          {% elif r.status == 'waiting' %}
+            <button type="button" class="btn btn-sm btn-soft" onclick="pick({{ r.id }}, this)" title="Choose the credit that paid it back"><i class="bi bi-link-45deg me-1"></i>Match</button>
+            <button class="btn btn-sm btn-soft" name="action" value="close" title="Stop waiting (no refund coming)"><i class="bi bi-x-circle"></i></button>
+          {% elif r.status == 'closed' %}<span class="chip tone-slate me-1">closed</span>
+            <button class="btn btn-sm btn-soft" name="action" value="undo" title="Wait for it again"><i class="bi bi-arrow-counterclockwise"></i></button>
+          {% elif r.status in ('confirmed', 'received') %}
+            <button class="btn btn-sm btn-soft" name="action" value="undo" title="Undo (categories go back)"><i class="bi bi-arrow-counterclockwise"></i></button>
+          {% endif %}</form>
+        </td></tr>
+      {% if r.status == 'waiting' %}<tr class="d-none" id="pk-{{ r.id }}"><td colspan="5"><form method="post" action="{{ url_for('refund_act', rid=r.id) }}" class="d-flex gap-2 align-items-center">
+        <input type="hidden" name="action" value="match"><input type="hidden" name="tab" value="waiting">
+        <select name="credit_id" class="form-select form-select-sm"></select><button class="btn btn-sm btn-primary">Match</button></form></td></tr>{% endif %}
+    {% else %}<tr><td colspan="5"><div class="empty"><i class="bi bi-check2-circle"></i>{{ 'Nothing to confirm.' if tab == 'suggested' else 'Nothing here.' }}</div></td></tr>{% endfor %}</tbody>
+  </table></div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+function pick(id, btn) {
+  const row = document.getElementById('pk-' + id), sel = row.querySelector('select');
+  if (!row.classList.contains('d-none')) { row.classList.add('d-none'); return; }
+  fetch('/refunds/' + id + '/candidates').then(r => r.json()).then(list => {
+    sel.innerHTML = list.length ? list.map(c => `<option value="${c.id}">${c.date} · ${c.account} · ₹${c.amount.toLocaleString('en-IN')} · ${String(c.desc).replace(/[<>&]/g, '').slice(0, 60)}</option>`).join('')
+                                : '<option value="">No credits found after the purchase yet</option>';
+    row.classList.remove('d-none');
+  });
+}
+</script>
+{% endblock %}

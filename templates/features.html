@@ -1,0 +1,60 @@
+{% extends "base.html" %}
+{% block title %}Features & accounts – Finance Hub{% endblock %}
+{% block page_title %}Features &amp; accounts{% endblock %}
+{% block content %}
+{% if welcome %}
+<div class="hub-card mb-3 tone-indigo"><div style="font-size:.9rem"><b>Welcome! What do you use?</b> Tick what applies to you — the menu will show
+  only those parts of the Hub. Nothing is deleted when you untick something, and you can change this any time on
+  <b>Settings › Features &amp; accounts</b>.</div></div>
+{% endif %}
+<form method="post" action="{{ url_for('features_save') }}">
+  {% if welcome %}<input type="hidden" name="welcome" value="1">{% endif %}
+  <div class="row g-3">
+  {% for grp in GROUPS %}
+    <div class="col-lg-6"><div class="hub-card h-100">
+      <h6 class="mb-2">{{ grp }}</h6>
+      {% for key, label, desc, group, icon, eps, kinds in FEATURES if group == grp %}
+        <label class="list-row d-flex align-items-start gap-2" style="cursor:pointer">
+          <input class="form-check-input mt-1" type="checkbox" name="on" value="{{ key }}" {{ 'checked' if key not in off }}
+                 {% if REQUIRES.get(key) %}data-needs="{{ REQUIRES[key] }}"{% endif %}>
+          <i class="bi {{ icon }} text-primary mt-1"></i>
+          <span class="min-w-0"><b style="font-size:.86rem">{{ label }}</b><div class="muted" style="font-size:.76rem">{{ desc }}</div></span>
+        </label>
+      {% endfor %}
+    </div></div>
+  {% endfor %}
+  </div>
+  <div class="d-flex gap-2 mt-3"><button class="btn btn-primary btn-sm"><i class="bi bi-check2 me-1"></i>{{ 'Continue' if welcome else 'Save' }}</button>
+    <span class="muted align-self-center" style="font-size:.76rem">Statements, transactions, categories, reports and settings are always on.</span></div>
+</form>
+
+<div class="hub-card mt-3">
+  <h6><i class="bi bi-wallet2 me-2 text-primary"></i>Your accounts — add anything that is missing</h6>
+  <div class="muted mb-2" style="font-size:.78rem">Bank accounts and cards are also created for you when you add their statements. Add the rest here whenever you like.</div>
+  <div class="row g-2">
+  {% for k, K in KIND.items() if k not in hidden_kinds %}
+    <div class="col-md-6 col-xl-4"><div class="list-row tone-{{ K.tone }}" style="font-size:.84rem">
+      <i class="bi {{ K.icon }} t-tone me-2"></i><span>{{ K.label }}</span>
+      <span class="chip ms-2">{{ counts.get(k, 0) }}</span>
+      <a class="btn btn-sm btn-soft ms-auto" href="{{ url_for('accounts', tab=k, add=k) }}"><i class="bi bi-plus-lg me-1"></i>Add</a></div></div>
+  {% endfor %}
+  {% if 'demat_page' not in hidden_eps %}
+    <div class="col-md-6 col-xl-4"><div class="list-row" style="font-size:.84rem"><i class="bi bi-shield-check text-primary me-2"></i><span>Demat accounts (CDSL / NSDL)</span>
+      <span class="chip ms-2">{{ demats }}</span><a class="btn btn-sm btn-soft ms-auto" href="{{ url_for('demat_page', view='add') }}"><i class="bi bi-plus-lg me-1"></i>Add</a></div></div>
+  {% endif %}
+  {% if 'director_page' not in hidden_eps %}
+    <div class="col-md-6 col-xl-4"><div class="list-row" style="font-size:.84rem"><i class="bi bi-briefcase text-primary me-2"></i><span>Company books</span>
+      <span class="chip ms-2">{{ books|length }}</span><a class="btn btn-sm btn-soft ms-auto" href="{{ url_for('people_page') }}"><i class="bi bi-plus-lg me-1"></i>Add</a></div></div>
+  {% endif %}
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script>
+document.querySelectorAll('[data-needs]').forEach(cb => {
+  const need = document.querySelector(`input[name=on][value="${cb.dataset.needs}"]`);
+  const sync = () => { if (!need.checked) cb.checked = false; cb.disabled = !need.checked; };
+  need.addEventListener('change', sync); sync();
+});
+</script>
+{% endblock %}

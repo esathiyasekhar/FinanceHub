@@ -157,6 +157,8 @@ class Vault:
     @property
     def files_dir(self):
         """1.5: folder for this user's sealed files (mail attachments waiting for review)."""
+        if not self.unlocked:
+            raise RuntimeError('locked')
         d = self.data_dir / (self.enc_path.stem + '_files')
         d.mkdir(exist_ok=True)
         return d
@@ -305,15 +307,22 @@ class Vault:
         return bool(u) and not u.get('recovery')
 
     def recover(self, username, recovery_key, new_password):
+        username = (username or '').strip()
+        wait = self.failed.get('recover:' + username, (0, 0))
+        if wait[0] >= 3 and time.time() - wait[1] < min(300, 5 * 2 ** (wait[0] - 3)):
+            return False, 'Too many wrong attempts — wait a few minutes and try again.'
         doc = self.users_doc()
         u = doc['users'].get(username)
         r = u.get('recovery') if u else None
         if not r:
+            self.failed['recover:' + username] = (wait[0] + 1, time.time())
             return False, 'Unknown user, or no recovery key was set for this user.'
         try:
             dek = unwrap(kek(norm_recovery(recovery_key), _unb64(r['salt']), r.get('iterations', ITERATIONS)), r['key'], b'recovery')
         except InvalidTag:
+            self.failed['recover:' + username] = (wait[0] + 1, time.time())
             return False, 'That recovery key does not match.'
+        self.failed.pop('recover:' + username, None)
         self._rewrap(doc, username, new_password, dek)
         self.save_users(doc)
         return True, ''
@@ -359,6 +368,14 @@ class Vault:
         for f in (db, db.with_suffix('.enc.prev')):
             if f.exists():
                 secure_delete(f)
+        for extra in (self.data_dir / f'{db.stem}.outbox', self.data_dir / f'{db.stem}.sent.json'):   # 1.6: reminder mails
+            if extra.exists():
+                secure_delete(extra)
+        try:
+            import notify
+            notify.MEMORY.pop(db.stem, None)
+        except Exception:  # noqa: BLE001
+            pass
         files = self.data_dir / (db.stem + '_files')          # 1.5: sealed mail attachments
         if files.is_dir():
             for f in files.rglob('*'):
@@ -427,11 +444,18 @@ def plaintext_copies(base: Path):
     base = Path(base)
     out = []
     for p in base.rglob('*'):
-        if not p.is_file() or p.parent.name == 'data' and p.suffix in ('.enc', '.prev', '.tmp'):
-            continue
         rel = p.relative_to(base).parts
+        if not p.is_file() or (rel and rel[0] in ('.venv', '.git', 'backups', 'logs', 'static', 'templates', 'docs', 'dist')) \
+                or p.parent.name == 'data' and p.suffix in ('.enc', '.prev', '.tmp'):
+            continue
         if rel and rel[0] == 'uploads':
-            out.append(p)                      # statement copies and import previews
+            try:
+                with open(p, 'rb') as f:
+                    if f.read(7) in (b'FHSEAL1', b'FHBLOB1'):
+                        continue               # encrypted import previews
+            except OSError:
+                continue
+            out.append(p)                      # statement copies
             continue
         if p.name.startswith('finance.db') or p.suffix.lower() in ('.db', '.sqlite', '.sqlite3', '.db-wal', '.db-shm'):
             try:

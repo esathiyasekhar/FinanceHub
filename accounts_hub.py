@@ -13,6 +13,7 @@ Kinds
 Balances come from the latest statement for the account (closing balance / amount due / loan outstanding)
 or from a manual entry (account_balances), whichever is newer.
 """
+import scope as SC  # noqa: E402  (1.6: net-worth history only from the unfiltered view)
 import json
 import re
 import sqlite3
@@ -568,7 +569,8 @@ def register(app, get_db):
             tab = 'all'
         fs, fe, fl, fp = fy_bounds()
         b = build(con, fs, fe)
-        record_snapshot(con, b)
+        if not SC.active():               # 1.6: only the full picture is kept in the net-worth history
+            record_snapshot(con, b)
         cards = [a for a in b['groups']['card'] if a['status'] == 'active']
         fy_opts = []
         today = date.today()
@@ -577,7 +579,9 @@ def register(app, get_db):
             fy_opts.append((f'FY {str(y)[-2:]}-{str(y + 1)[-2:]}', f'{str(y)[-2:]}-{str(y + 1)[-2:]}'))
         entities = [r[0] for r in con.execute("SELECT name FROM entities WHERE COALESCE(role,'book')='book' ORDER BY name<>'Personal', sort_order, name")]
         people = [r[0] for r in con.execute('SELECT name FROM people ORDER BY name')]
-        return render_template('accounts.html', b=b, tab=tab, KINDS=KIND, kinds=[k[0] for k in KINDS],
+        import features
+        hk = features.hidden(con)[1]                       # 1.6: kinds you turned off are not shown as tabs
+        return render_template('accounts.html', b=b, tab=tab, KINDS=KIND, kinds=[k[0] for k in KINDS if k[0] not in hk],
                                SUBTYPES=SUBTYPES, COLOURS=COLOURS, fy_label=fl, fy_param=fp, fy_opts=fy_opts,
                                sel_start=fs, sel_end=fe, card_names=[a['name'] for a in cards],
                                entities=entities, people=people, today=today)
@@ -589,8 +593,11 @@ def register(app, get_db):
             flash('Account not found.', 'warning')
             return redirect(url_for('accounts'))
         fs, fe, fl, fp = fy_bounds()
-        b = build(con, fs, fe)
-        acc = next(x for k in KIND for x in b['groups'][k] if x['id'] == acc_id)
+        b = build(con, fs, fe, ignore_scope=True)          # 1.6: open any account, whatever the Viewing filter
+        acc = next((x for k in KIND for x in b['groups'][k] if x['id'] == acc_id), None)
+        if acc is None:
+            flash('Account not found.', 'warning')
+            return redirect(url_for('accounts'))
         pts = [{'as_of': p['as_of'], 'value': p['closing'], 'source': 'statement', 'note': p['file']}
                for p in statement_points(con).get(acc['name'], [])]
         pts += [{'as_of': p['as_of'], 'value': p['balance'], 'source': 'manual', 'note': p['note'] or '', 'id': p['id']}
@@ -797,7 +804,8 @@ def register(app, get_db):
     def networth_page():
         con = con_()
         b = build(con)
-        record_snapshot(con, b)
+        if not SC.active():               # 1.6: only the full picture is kept in the net-worth history
+            record_snapshot(con, b)
         hist = history(con)
         return render_template('networth.html', b=b, KINDS=KIND, kinds=[k[0] for k in KINDS], hist=hist,
                                hist_json=json.dumps([{'d': h['day'], 'a': round(h['assets']), 'l': round(h['liabilities']),
@@ -832,7 +840,8 @@ def register(app, get_db):
         import organise
         today = date.today()
         b = build(con)
-        record_snapshot(con, b)
+        if not SC.active():               # 1.6: only the full picture is kept in the net-worth history
+            record_snapshot(con, b)
         rec = planning.recurring_for_dues(con, b)
         upcoming = dues(con, b, start=today, days=30, recurring=rec)
         cash = cash_position(b, upcoming)
@@ -889,6 +898,10 @@ def rename_account(con, old, new):
     """Account names are stored on transactions, loans and statements — keep them in step."""
     con.execute('UPDATE transactions SET account=? WHERE account=?', (new, old))
     con.execute('UPDATE loans SET card=? WHERE card=?', (new, old))
+    for table, col in (('recurring', 'account'), ('pl_moves', 'our_account')):       # 1.6
+        if con.execute('SELECT 1 FROM sqlite_master WHERE name=?', (table,)).fetchone() and \
+                col in {r[1] for r in con.execute(f'PRAGMA table_info({table})')}:
+            con.execute(f'UPDATE {table} SET {col}=? WHERE {col}=?', (new, old))
     for sid, accs in con.execute('SELECT id, accounts FROM statements').fetchall():
         names = [n.strip() for n in (accs or '').split(';') if n.strip()]
         if old in names:

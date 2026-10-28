@@ -413,6 +413,10 @@ PAGES = [  # title, endpoint, icon, keywords
     ('Director’s account', 'director_page', 'bi-briefcase', 'company director drawings capital'),
     ('Holdings by broker', 'inv_brokers_page', 'bi-diagram-2', 'broker holdings demat'),
     ('Mail inbox', 'mail_page', 'bi-envelope', 'mail email imap inbox statements alerts gmail forward'),
+    ('Reminders & reports by mail', 'reminders_page', 'bi-bell', 'reminder email weekly report dues emi sunday notify'),
+    ('Failed payments & refunds', 'refunds_page', 'bi-arrow-counterclockwise', 'failed reversal refund reversed chargeback awaiting'),
+    ('Help & user manual', 'help_page', 'bi-question-circle', 'help manual guide how to faq support'),
+    ('Features & accounts', 'features_page', 'bi-toggles', 'features turn on off modules savings cards demat business add missing account'),
     ('Demat check (CDSL / NSDL)', 'demat_page', 'bi-shield-check', 'demat cdsl nsdl depository cas reconcile reconciliation'),
     ('Asset types', 'asset_types_page', 'bi-tags', 'equity etf reit invit bonds mutual funds'),
     ('Users & security', 'users_page', 'bi-shield-lock', 'users password security lock recovery'),
@@ -426,7 +430,14 @@ def search(con, q):
     q = (q or '').strip()
     ql = q.lower()
     res = []
+    try:
+        import features
+        hidden_eps = features.hidden(con)[0]
+    except Exception:  # noqa: BLE001
+        hidden_eps = set()
     for title, ep, icon, kw in PAGES:
+        if ep in hidden_eps:
+            continue
         if not q or ql in title.lower() or ql in kw:
             res.append({'group': 'Pages', 'title': title, 'sub': '', 'url': url_for(ep), 'icon': icon})
     if not q:

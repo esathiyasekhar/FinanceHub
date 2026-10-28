@@ -205,7 +205,10 @@ def register(app, get_db):
     def asset_type_delete():
         con = get_db()
         key = request.form.get('key')
-        if con.execute('SELECT builtin FROM inv_asset_types WHERE key=?', (key,)).fetchone()[0]:
+        row = con.execute('SELECT builtin FROM inv_asset_types WHERE key=?', (key,)).fetchone()
+        if not row:
+            flash('That asset type no longer exists.', 'info')
+        elif row[0]:
             flash('Built-in types cannot be removed.', 'warning')
         else:
             con.execute('UPDATE inv_securities SET asset_type=NULL, asset_type_manual=0 WHERE asset_type=?', (key,))
@@ -223,8 +226,8 @@ def register(app, get_db):
         else:
             con.execute('UPDATE inv_securities SET asset_type=?, asset_type_manual=1 WHERE id=?', (key, sid))
         con.commit()
-        nxt = request.form.get('next') or ''
-        return redirect(nxt if nxt.startswith('/') else url_for('asset_types_page'))
+        from webutil import safe_next
+        return redirect(safe_next(request.form.get('next'), url_for('asset_types_page')))
 
     def brokers_page():
         con = get_db()

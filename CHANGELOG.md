@@ -3,6 +3,53 @@
 Every change gets a new version number (shown at the bottom of the sidebar). From 28 Oct 2026 versions run 1.1, 1.2, …
 Earlier versions (v2 – v11) and their data were deleted at the owner's request; this log starts with 1.1.
 
+## 1.6 — 2026-10-28
+**Runs in the background, production-grade**
+- **No console window.** The *Finance Hub* shortcut (Desktop and Start menu) starts the Hub in the background with a
+  **tray icon**: Open · Lock now · Start with Windows · Open logs folder · Quit. A second start just opens the browser.
+  The top bar has a **Quit** button too. Runs on **Waitress** (production web server), on this computer only.
+- **Install / upgrade:** `install.bat` sets up the Hub's own Python environment (`.venv`), installs the packages, records
+  their exact versions (`requirements.lock`) and creates the shortcuts. `run.bat` starts the Hub. `tools\upgrade.py`
+  installs a release zip after checking every file against its manifest.
+- **Automatic backups:** the first time a new version starts, your encrypted data is copied to `backups\` (newest 10 kept).
+- **Logs** in `logs\hub.log` (rotated; never passwords or statement contents); a friendly error page instead of a crash.
+- **Version control:** the program is kept in a git repository with a tag per version; `tools\make_release.py` builds a
+  release only after the changelog check, a **personal-data scan** of the code and the full test suite (synthetic data).
+- **Choose what you use** (*Settings › Features & accounts*): turn savings, cards, loans & EMIs, deposits, wallets,
+  budgets, refunds, loans with people, business books, client reimbursements, investments, demat check, planner, mail
+  inbox and reminders on or off — the menu, search and Accounts tabs show only what you use (nothing is deleted). The first
+  log-in asks once; **Add** buttons let you add any missing account at any time.
+
+**New features**
+- **Reminders & reports by mail** (*Settings › Reminders & reports by mail*): a mail the **day before** every payment is due
+  (card bills, EMIs, loans, regular payments, money borrowed from people) and a **weekly dues report** (Sunday 08:00 by
+  default; next two weeks, overdue items, refunds you are waiting for) to the addresses you choose, sent from the Hub's
+  mailbox. Prepared while the Hub is unlocked and kept protected by your Windows login, so they go out on time while the
+  Hub is locked. Test mail and preview on the page; amounts can be left out.
+- **Failed payments & refunds** (*Money › Failed & refunds*): finds payments that failed and were reversed (same amount,
+  same account, reversal or same reference within 10 days) — confirm and neither side counts as spending or income; matches
+  **refunds** to the purchases they pay back (the category's spending goes down); **Awaiting refund** list (Transactions ›
+  More › *Expecting a refund for this*) with days waiting, follow-up after 15 days, match by hand, close, undo.
+- **User manual inside the app** (*Settings › Help & user manual*, or the **?** on any page): 21 chapters, search, PDF.
+  **Design manual** for administrators (internal), also as PDF.
+
+**Fixes and hardening (from a full code review)**
+- The Hub locks itself after the idle time even when no browser tab is open.
+- The login cookie is never sent with requests started by other websites (SameSite=Strict); the recovery key no longer
+  passes through the cookie; recovery attempts are throttled; redirects only go to pages inside the Hub.
+- Excel report download: parameters are no longer pasted into the database query.
+- Removing a user also erases their prepared reminder mails.
+- Net-worth history is recorded only from the full (unfiltered) view; an account opens even outside the Viewing filter.
+- Re-applying rules with "include hand edits" keeps the categories of confirmed transfers, refunds, reimbursements and loans.
+- Reimbursements: **Fee** really returns the credit to income; the "claim" message counts only money going out.
+- Mail inbox: contract notes are imported automatically only when their totals reconcile; broker CSV / XLSX files sent by
+  mail wait for review; saving the settings keeps fields that are not on the form.
+- Demat: removing a demat account lets its statement be imported again; bonus shares can be added at price 0.
+- Insights period buttons work again; import error messages point to the log file; small wording fixes.
+- Renaming an account also renames it in regular payments and loans with people.
+- Privacy: examples taken from real statements (a payee name, a shop name, reward points, an account number, a folder path)
+  were removed from the code; Statement Reader is now **v14**.
+
 ## 1.5 — 2026-10-28
 - **Mail inbox** (*Settings › Mail inbox*, and the link under *Add Statements*): the Hub reads its own mailbox over IMAP
   (SSL) while it is unlocked — every 15 minutes (changeable) or on *Check now*.

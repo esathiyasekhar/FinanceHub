@@ -660,7 +660,20 @@ def register(app, get_db):
     def rules_reapply():
         con = get_db()
         if request.form.get('include_manual'):
-            con.execute('UPDATE transactions SET manual=0')
+            # 1.6: rows owned by confirmed transfers, refunds, reimbursements and loans with people keep their categories
+            keep = []
+            for q in ("SELECT out_id FROM txn_links WHERE status='confirmed' UNION SELECT in_id FROM txn_links WHERE status='confirmed'",
+                      "SELECT debit_id FROM txn_refunds WHERE status IN ('confirmed','received') UNION "
+                      "SELECT credit_id FROM txn_refunds WHERE status IN ('confirmed','received')",
+                      'SELECT id FROM transactions WHERE reimb_payer IS NOT NULL', 'SELECT txn_id FROM pl_moves'):
+                try:
+                    keep += [r[0] for r in con.execute(q) if r[0]]
+                except Exception:  # noqa: BLE001  (feature tables not created yet)
+                    pass
+            con.execute('CREATE TEMP TABLE IF NOT EXISTS _keep (id INTEGER PRIMARY KEY)')
+            con.execute('DELETE FROM _keep')
+            con.executemany('INSERT OR IGNORE INTO _keep VALUES (?)', [(i,) for i in keep])
+            con.execute('UPDATE transactions SET manual=0 WHERE id NOT IN (SELECT id FROM _keep)')
         n = C.apply_to_rows(con)
         flash(f'Re-applied rules to {n} transactions' +
               (' (hand edits were reset).' if request.form.get('include_manual') else ' (hand-edited ones kept).'),

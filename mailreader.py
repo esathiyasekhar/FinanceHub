@@ -312,7 +312,9 @@ def process_file(con, data, fname, trusted, auto):
                 I.HOOKS['discard'](p['token'])
                 return 'duplicate', kind, 'this file was imported before', ''
             sel = p.get('broker_id') or ''
-            ready = p.get('importable') and p.get('tick') and (sel or (kind == 'depository' and pv.get('demats')))
+            ready = p.get('importable') and p.get('tick') and (
+                (kind == 'contract_note' and sel and pv.get('check') == 'OK') or      # 1.6: totals must reconcile
+                (kind == 'depository' and pv.get('demats')))
             if auto and trusted and ready:
                 n, msg = I.HOOKS['confirm'](con, p['token'], sel)
                 if n:
@@ -321,6 +323,7 @@ def process_file(con, data, fname, trusted, auto):
             why = ('forwarded by hand — check it before importing' if not trusted else
                    'broker not recognised' if kind == 'contract_note' and not sel else
                    'totals do not reconcile' if pv.get('check') == 'MISMATCH' else
+                   'totals could not be checked' if kind == 'contract_note' and pv.get('check') != 'OK' else
                    'no demat account found' if kind == 'depository' and not pv.get('demats') else
                    'automatic import is off' if not auto else 'check before importing')
             return 'review', kind, why, ''
@@ -336,6 +339,14 @@ def process_file(con, data, fname, trusted, auto):
         if pv['status'] == 'needs_password':
             return 'review', 'statement', 'none of the saved passwords opens it', ''
         if pv['status'] != 'ok':
+            if ext != '.pdf' and I.HOOKS.get('preview'):          # 1.6: a broker tradebook / holdings export sent by mail
+                tmp2 = _tmp_path(fname)
+                tmp2.write_bytes(data)
+                p = I.HOOKS['preview'](con, tmp2, fname)
+                ipv = p.get('pv') or {}
+                I.HOOKS['discard'](p['token'])
+                if ipv.get('kind') in ('tradebook', 'holdings'):
+                    return 'review', 'contract_note', 'broker file — choose the broker when you review it', ''
             return 'skipped', 'other', (pv.get('msg') or 'not a statement')[:200], ''
         if pv.get('duplicate_statement'):
             return 'duplicate', 'statement', 'this statement is already in the Hub', ''
@@ -563,10 +574,10 @@ def register(app, get_db, upload_dir, vault):
     def mail_settings_save():
         con = con_()
         f = request.form
+        old = settings(con)
         kw = {}
         for k in ('host', 'port', 'user', 'folder', 'label', 'interval', 'since_days'):
-            if k in f:
-                kw[k] = f.get(k, '').strip()[:200]
+            kw[k] = f.get(k, old[k]).strip()[:200]                  # 1.6: fields not on the form keep their value
         kw['label'] = re.sub(r'[^A-Za-z0-9 _/-]', '', kw.get('label', 'FinanceHub')) or 'FinanceHub'
         kw['interval'] = str(max(5, min(1440, int(kw.get('interval') or 15)))) if (kw.get('interval') or '15').isdigit() else '15'
         kw['since_days'] = str(max(1, min(400, int(kw.get('since_days') or 60)))) if (kw.get('since_days') or '60').isdigit() else '60'
@@ -578,7 +589,6 @@ def register(app, get_db, upload_dir, vault):
         kw['auto_import'] = '1' if f.get('auto_import') else '0'
         if f.get('password', '').strip():
             kw['password'] = f['password'].strip().replace(' ', '')       # Gmail shows app passwords in groups of four
-        old = settings(con)
         if kw.get('user') != old['user'] or kw.get('folder') != old['folder'] or kw.get('host') != old['host']:
             kw.update(last_uid='0', uidvalidity='')
         _set(con, **kw)
@@ -679,7 +689,7 @@ def register(app, get_db, upload_dir, vault):
             _erase_blob(con, r['id'])
         con.execute("DELETE FROM mail_items WHERE status IN ('imported','duplicate','ignored','rejected','skipped','done','error')")
         con.commit()
-        flash('History cleared. Mails already handled are not read again.', 'info')
+        flash('History cleared. Mails already read are not read again (unless you add one of their senders later).', 'info')
         return redirect(url_for('mail_page'))
 
     for rule, ep, fn, methods in [

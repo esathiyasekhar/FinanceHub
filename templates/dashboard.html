@@ -7,17 +7,17 @@
 <!-- Period Picker -->
 <div class="d-flex flex-wrap align-items-center justify-content-between gap-2 mb-4">
   <div class="d-flex align-items-center gap-2 flex-wrap">
-    <a href="/?period=month" class="btn btn-sm {% if period=='month' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+    <a href="/insights?period=month" class="btn btn-sm {% if period=='month' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
       <i class="bi bi-calendar-event me-1"></i>This Month
     </a>
-    <a href="/?period=fy" class="btn btn-sm {% if period=='fy' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
+    <a href="/insights?period=fy" class="btn btn-sm {% if period=='fy' %}btn-primary{% else %}btn-outline-secondary{% endif %}">
       <i class="bi bi-calendar-range me-1"></i>Full {{ fy_label }}
     </a>
     {% if period == 'month' and avail_months %}
     <div class="d-flex align-items-center gap-1">
       <span class="text-muted" style="font-size:.8rem">Jump to:</span>
       <select class="form-select form-select-sm" style="width:auto;font-size:.8rem;background:var(--navy2);border-color:var(--border);color:var(--text)"
-              onchange="if(this.value) window.location='/?period=month&m='+this.value">
+              onchange="if(this.value) window.location='/insights?period=month&m='+this.value">
         <option value="">— choose month —</option>
         {% for m in avail_months %}
         <option value="{{ m }}">{{ m }}</option>
@@ -41,7 +41,7 @@
     <strong>No transactions for {{ period_label }}</strong><br>
     <span style="font-size:.85rem">
       Add statements on the <a href="{{ url_for('import_page') }}" class="alert-link">Add Statements</a> page,
-      or <a href="/?period=fy" class="alert-link">view the full {{ fy_label }}</a>.
+      or <a href="/insights?period=fy" class="alert-link">view the full {{ fy_label }}</a>.
     </span>
   </div>
 </div>

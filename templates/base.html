@@ -265,6 +265,7 @@
       ('Budgets', 'budgets_page', {}, 'bi-pie-chart', _ep == 'budgets_page'),
       ('Transfers & links', 'links_page', {}, 'bi-link-45deg', _ep in ('links_page', 'link_manual')),
       ('Loans with people', 'pl_page', {}, 'bi-person-lines-fill', _ep == 'pl_page'),
+      ('Failed & refunds', 'refunds_page', {}, 'bi-arrow-counterclockwise', _ep == 'refunds_page'),
       ('Reimbursements', 'reimb_page', {}, 'bi-receipt-cutoff', _ep == 'reimb_page'),
       ('Director’s account', 'director_page', {}, 'bi-briefcase', _ep == 'director_page'),
       ('Reports & ITR', 'reports_page', {}, 'bi-file-earmark-spreadsheet', _ep == 'reports_page'),
@@ -284,9 +285,12 @@
   ('settings', 'Settings', 'bi-gear', 'slate', [
       ('Categories', 'categories', {}, 'bi-tags', _ep == 'categories'),
       ('Payee rules', 'rules_page', {}, 'bi-magic', _ep == 'rules_page'),
+      ('Features & accounts', 'features_page', {}, 'bi-toggles', _ep == 'features_page'),
       ('People & entities', 'people_page', {}, 'bi-people', _ep == 'people_page'),
       ('Statement passwords', 'passwords_page', {}, 'bi-key', _ep == 'passwords_page'),
       ('Mail inbox', 'mail_page', {}, 'bi-envelope', _ep == 'mail_page'),
+      ('Reminders & reports by mail', 'reminders_page', {}, 'bi-bell', _ep == 'reminders_page'),
+      ('Help & user manual', 'help_page', {}, 'bi-question-circle', _ep in ('help_page', 'help_search', 'help_design')),
       ('Users & security', 'users_page', {}, 'bi-shield-lock', _ep == 'users_page'),
   ]),
 ] %}
@@ -300,11 +304,13 @@
     <a href="{{ url_for('import_page') }}" class="btn btn-cta btn-sm w-100 py-2 {% if _ep == 'import_page' %}active{% endif %}">
       <i class="bi bi-cloud-arrow-up me-1"></i> Add Statements
     </a>
-    <a href="{{ url_for('mail_page', tab='review' if mail_waiting else 'statements') }}" class="mail-link {{ 'on' if mail_auto }}" title="Statements arriving in the Hub's mailbox">
-      <i class="bi bi-envelope{{ '-check' if mail_auto }} me-1"></i>Mail inbox<span class="nav-badge ms-auto {{ '' if mail_waiting else 'd-none' }}" id="mailBadge">{{ mail_waiting }}</span></a>
+    {% if 'mail_page' not in (hidden_eps or []) %}<a href="{{ url_for('mail_page', tab='review' if mail_waiting else 'statements') }}" class="mail-link {{ 'on' if mail_auto }}" title="Statements arriving in the Hub's mailbox">
+      <i class="bi bi-envelope{{ '-check' if mail_auto }} me-1"></i>Mail inbox<span class="nav-badge ms-auto {{ '' if mail_waiting else 'd-none' }}" id="mailBadge">{{ mail_waiting }}</span></a>{% endif %}
   </div>
   <div class="nav-scroll">
-    {% for gid, glabel, gicon, gtone, items in nav_groups %}
+    {% for gid, glabel, gicon, gtone, all_items in nav_groups %}
+      {% set items = [] %}{% for it in all_items %}{% if it[1] not in (hidden_eps or []) and not (it[1] == 'accounts' and it[2].get('tab') in (hidden_kinds or [])) %}{% set _ = items.append(it) %}{% endif %}{% endfor %}
+      {% if items %}
       {% set g_active = items|selectattr('4')|list|length > 0 %}
       <button class="nav-link nav-group tone-{{ gtone }} {% if g_active %}has-active{% endif %}" type="button" data-bs-toggle="collapse"
               data-bs-target="#grp-{{ gid }}" aria-expanded="{{ 'true' if g_active else 'false' }}" aria-controls="grp-{{ gid }}">
@@ -317,6 +323,7 @@
           <a class="nav-link {% if is_active %}active{% endif %}" href="{{ url_for(endpoint, **args) }}">{{ label }}</a>
         {% endfor %}
       </div>
+      {% endif %}
     {% endfor %}
   </div>
   <div class="foot">
@@ -370,7 +377,10 @@
           {% endblock %}
         </ul>
       </div>
+      <a class="tb-btn" href="{{ url_for('help_page', topic=help_topic) }}" title="Help for this page"><i class="bi bi-question-circle"></i></a>
       <form method="post" action="{{ url_for('logout') }}" class="m-0"><button class="tb-btn" title="Lock (log out){% if current_user %} — {{ current_user }}{% endif %}"><i class="bi bi-lock"></i></button></form>
+      {% if hub_launcher %}<form method="post" action="{{ url_for('app_quit') }}" class="m-0" onsubmit="return confirm('Stop Finance Hub? Your data is saved and locked.')">
+        <button class="tb-btn" title="Quit Finance Hub (stops the background server)"><i class="bi bi-power"></i></button></form>{% endif %}
     </div>
   </div>
 

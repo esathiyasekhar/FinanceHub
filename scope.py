@@ -70,9 +70,11 @@ def _companies():
 def txn_literal(alias='t'):
     """Same filter as plain SQL text (for older helpers that take a WHERE string)."""
     sql, params = txn_sql(alias)
-    for p in params:
-        sql = sql.replace('?', "'" + str(p).replace("'", "''") + "'", 1)
-    return sql
+    parts = sql.split('?')                       # fill placeholders left to right (values may contain '?')
+    out = parts[0]
+    for p, rest in zip(params, parts[1:]):
+        out += "'" + str(p).replace("'", "''") + "'" + rest
+    return out
 
 
 def account_in_scope(a):
@@ -124,9 +126,7 @@ def register(app, get_db):
             if row:
                 s = {'broker': str(row['id']), 'broker_name': row['name'], 'label': f"{row['name']} (broker)"}
         session['scope'] = s
-        nxt = v.get('next') or request.referrer or url_for('home')
-        if not str(nxt).startswith(('/', 'http://127.0.0.1', 'http://localhost')):
-            nxt = url_for('home')
-        return redirect(nxt)
+        from webutil import safe_next
+        return redirect(safe_next(v.get('next') or request.referrer, url_for('home')))
 
     app.add_url_rule('/scope', 'set_scope', set_scope, methods=['GET', 'POST'])

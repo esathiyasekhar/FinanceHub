@@ -216,6 +216,7 @@
           <ul class="dropdown-menu">
             <li><a class="dropdown-item" id="mLink" href="#"><i class="bi bi-link-45deg me-2"></i>Link to its other side (transfer)</a></li>
             <li><a class="dropdown-item" id="mLoan" href="#"><i class="bi bi-person-lines-fill me-2"></i>Record as a loan with a person</a></li>
+            <li><a class="dropdown-item" id="mRefund" href="#"><i class="bi bi-arrow-counterclockwise me-2"></i>Expecting a refund for this</a></li>
           </ul></div>
         <button class="btn btn-sm btn-secondary" data-bs-dismiss="modal">Cancel</button>
         <button class="btn btn-sm btn-primary" id="mSave" disabled>Save</button>
@@ -248,6 +249,15 @@ document.querySelectorAll('.txn-row').forEach(tr => tr.addEventListener('click',
   $('mName').value = r.name; $('mCat').value = r.category_id; showPath();
   $('mLink').href = '{{ url_for("link_manual") }}?txn=' + r.id;
   $('mLoan').href = '{{ url_for("pl_page") }}?txn=' + r.id + '#new';
+  $('mRefund').parentElement.classList.toggle('d-none', r.type !== 'debit');
+  $('mRefund').onclick = ev => {
+    ev.preventDefault();
+    const fd = new FormData(); fd.append('txn', r.id);
+    fetch('{{ url_for("refund_expect") }}', { method: 'POST', body: fd, headers: { 'X-Requested-With': 'fetch' } }).then(x => x.json()).then(d => {
+      $('mMsg').innerHTML = d.ok ? 'Added to <a href="{{ url_for("refunds_page", tab="waiting") }}">Awaiting refund</a> — the Hub will watch for the money coming back.'
+                                 : 'Only money going out can wait for a refund.';
+    });
+  };
   $('mNewItem').value = ''; $('mEnt').value = r.entity; $('mPer').value = r.person; $('mNotes').value = r.notes;
   $('mKey').textContent = r.payee_key || '(none)';
   $('mPattern').value = r.rule && r.rule.match_type === 'contains' ? r.rule.pattern : (r.payee_key || '').split(' ').slice(0, 3).join(' ');

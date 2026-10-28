@@ -6,7 +6,18 @@ from flask import render_template, request, redirect, url_for, flash, session, j
 
 import vault as VT
 
-OPEN_ENDPOINTS = {'login', 'setup', 'recover', 'static', 'logout'}
+_RK = {}            # recovery keys waiting to be shown once — kept in memory, never in the (unencrypted) session cookie
+
+
+def _hold_key(rk):
+    import secrets
+    _RK.clear()
+    t = secrets.token_urlsafe(16)
+    _RK[t] = rk
+    return t
+
+
+OPEN_ENDPOINTS = {'login', 'setup', 'recover', 'static', 'logout', 'healthz', 'app_stopped'}
 
 
 def register(app, V, prepare_db):
@@ -36,9 +47,18 @@ def register(app, V, prepare_db):
                 flash('Only an administrator can add or remove users.', 'warning')
                 return redirect(url_for('users_page'))
         if V.needs_recovery_key() and ep not in ('recovery_show',) and request.method == 'GET':
-            session['show_recovery'] = V.new_recovery()
+            session['show_recovery'] = _hold_key(V.new_recovery())
             return redirect(url_for('recovery_show'))
         return None
+
+    def idle_watch():
+        """1.6: lock after the idle time even when no browser tab is open (runs every minute in the background)."""
+        idle = V.idle_minutes()
+        if V.unlocked and idle and time.time() - V.last > idle * 60:
+            V.lock_now()
+            app.logger.info('Locked after %s idle minutes', idle)
+    import notify
+    notify.EXTRA_TICKS.append(idle_watch)
 
     @app.context_processor
     def _inject_user():
@@ -70,12 +90,12 @@ def register(app, V, prepare_db):
             prepare_db()
             session.clear()
             session['user'], session['vault'] = u, V.nonce
-            session['show_recovery'] = rk
+            session['show_recovery'] = _hold_key(rk)
             return redirect(url_for('recovery_show', removed=len(erased)))
         return render_template('auth_setup.html', copies=copies)
 
     def recovery_show():
-        rk = session.pop('show_recovery', None)
+        rk = _RK.pop(session.pop('show_recovery', None) or '', None)
         if not rk:
             return redirect(url_for('home'))
         return render_template('auth_recovery.html', rk=rk, removed=request.args.get('removed', ''), user=V.user,
@@ -90,8 +110,8 @@ def register(app, V, prepare_db):
                 prepare_db()                       # upgrades the tables when a new version is installed
                 session.clear()
                 session['user'], session['vault'] = request.form['username'].strip(), V.nonce
-                nxt = request.form.get('next') or ''
-                return redirect(nxt if nxt.startswith('/') and not nxt.startswith('//') else url_for('home'))
+                from webutil import safe_next
+                return redirect(safe_next(request.form.get('next'), url_for('home')))
             flash(msg, 'danger')
         return render_template('auth_login.html', next=request.args.get('next', ''))
 
@@ -162,7 +182,7 @@ def register(app, V, prepare_db):
         return redirect(url_for('users_page'))
 
     def recovery_new():
-        session['show_recovery'] = V.new_recovery()
+        session['show_recovery'] = _hold_key(V.new_recovery())
         return redirect(url_for('recovery_show'))
 
     def security_settings():
@@ -188,8 +208,8 @@ def register(app, V, prepare_db):
         con.execute("INSERT OR REPLACE INTO hub_settings (key, value) VALUES ('display_name', ?)", (request.form.get('display_name', '').strip()[:60],))
         con.commit()
         flash('Saved.', 'success')
-        nxt = request.form.get('next') or ''
-        return redirect(nxt if nxt.startswith('/') and not nxt.startswith('//') else url_for('people_page'))
+        from webutil import safe_next
+        return redirect(safe_next(request.form.get('next'), url_for('people_page')))
 
     for rule, ep, fn, methods in [
         ('/setup', 'setup', setup, ['GET', 'POST']),

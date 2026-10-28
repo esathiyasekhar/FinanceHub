@@ -194,6 +194,8 @@
     bootstrap.Modal.getOrCreateInstance(document.getElementById('balModal')).show();
     setTimeout(() => f.balance.focus(), 300);
   };
+  { const want = new URLSearchParams(location.search).get('add');      // 1.6: "Add" from Features & accounts
+    if (want) setTimeout(() => openAccount(want), 150); }
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-edit]');
     if (b) { e.preventDefault(); const d = JSON.parse(b.dataset.edit); openAccount(d.kind, d); }

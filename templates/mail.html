@@ -5,8 +5,8 @@
 <div class="hub-card mb-3 tone-indigo">
   <div class="d-flex flex-wrap align-items-center gap-3">
     <div class="kpi p-0 border-0" style="box-shadow:none"><div class="ico"><i class="bi bi-envelope-paper"></i></div></div>
-    <div class="flex-grow-1" style="font-size:.84rem">The Hub reads its <b>own mailbox</b> while it is unlocked
-      {% if s.enabled == '1' %}(every {{ s.interval }} minutes){% endif %}: statements, contract notes and CDSL / NSDL statements from senders on your list
+    <div class="flex-grow-1" style="font-size:.84rem">The Hub reads its <b>own mailbox</b> while it is unlocked and open in your browser
+      {% if s.enabled == '1' %}(every {{ s.interval }} minutes){% endif %}, or when you press <b>Check now</b>: statements, contract notes and CDSL / NSDL statements from senders on your list
       are read with your saved statement passwords and imported when every check passes — the rest waits here for you.
       Mails that fail the sender check are never opened.</div>
     {% if configured %}
@@ -53,7 +53,7 @@
       <div class="muted" style="font-size:.7rem">Mails you forward by hand from these addresses are read too, but always wait for you —
         the original sender cannot be verified after a manual forward. Filter forwarding keeps the original sender and is verified.</div>
       <div class="form-check mt-2"><input class="form-check-input" type="checkbox" name="enabled" id="mEn" {{ 'checked' if s.enabled == '1' }}>
-        <label class="form-check-label" for="mEn" style="font-size:.82rem">Check automatically while the Hub is open</label></div>
+        <label class="form-check-label" for="mEn" style="font-size:.82rem">Check automatically while the Hub is open in your browser</label></div>
       <div class="form-check"><input class="form-check-input" type="checkbox" name="auto_import" id="mAuto" {{ 'checked' if s.auto_import == '1' }}>
         <label class="form-check-label" for="mAuto" style="font-size:.82rem">Import automatically when every check passes</label></div></div>
     <div class="col-12 d-flex flex-wrap gap-2 align-items-center">

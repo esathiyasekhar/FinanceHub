@@ -3,6 +3,10 @@
 Every change gets a new version number. The zip is named `StatementReader_<version>.zip`
 and the version shows in the app's title bar.
 
+## v14 — 2026-10-28
+- Privacy: examples in the code comments and this changelog that came from real statements (reward points in the SBI
+  Card reader, a payee name in the HDFC savings reader) were replaced with made-up values. Reading is unchanged.
+
 ## v13 — 2026-10-28
 - New reader: **State Bank of India account statement** from internet banking / YONO Business — current or savings
   account, any period (e.g. a whole financial year). Reads the account name, number, type and IFSC, the printed

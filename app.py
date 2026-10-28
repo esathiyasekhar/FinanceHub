@@ -21,11 +21,13 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTS = {'.pdf', '.xlsx', '.xls', '.csv'}
 
-HUB_VERSION = '1.5'          # bump on every change: 1.1, 1.2, … (see CHANGELOG.md)
+from hub_version import VERSION as HUB_VERSION  # noqa: E402  (bump in hub_version.py on every change)
 
 app = Flask(__name__)
 import secrets as _secrets  # noqa: E402
 app.secret_key = _secrets.token_hex(32)      # new every start → everyone logs in again after a restart
+# 1.6: the login cookie is never sent with requests started by other websites (protects against cross-site requests)
+app.config.update(SESSION_COOKIE_SAMESITE='Strict', SESSION_COOKIE_HTTPONLY=True, MAX_CONTENT_LENGTH=100 * 1024 * 1024)
 
 # 1.2: the database is encrypted on disk (finance.db.enc) and opened in memory after login — see vault.py
 import vault as _vault  # noqa: E402
@@ -104,9 +106,11 @@ def close_db(exc):
         try:
             if exc is not None and V.con.in_transaction:
                 V.con.rollback()
-            V.persist()
+            if V.persist():
+                import notify as _nt
+                _nt.mark_dirty()          # 1.6: data changed → prepare the reminder mails again
         except Exception:  # noqa: BLE001
-            pass
+            app.logger.exception('Saving the encrypted database failed')
 
 
 def init_db():
@@ -310,8 +314,8 @@ def loans():
 
 
 def _loans_back():
-    nxt = request.form.get('next') or ''
-    return redirect(nxt if nxt.startswith('/') else url_for('accounts', tab='emi'))
+    from webutil import safe_next
+    return redirect(safe_next(request.form.get('next'), url_for('accounts', tab='emi')))
 
 
 @app.route('/loans/add', methods=['POST'])
@@ -378,9 +382,8 @@ def download_report():
     start = request.args.get('start', FY_START)
     end   = request.args.get('end',   FY_END)
 
-    txns = [dict(r) for r in q(
-        f"SELECT * FROM transactions WHERE date >= '{start}' AND date <= '{end}'"
-    )]
+    txns = [dict(r) for r in get_db().execute(
+        'SELECT * FROM transactions WHERE date >= ? AND date <= ?', (start, end)).fetchall()]
     data = generate_monthly_report(txns, start, end)
     if not data:
         flash('Report generation failed (openpyxl missing?)', 'danger')
@@ -638,9 +641,15 @@ def prepare_db():
         assets.ensure_schema(_c)
         import mailreader as _mr
         _mr.ensure_schema(_c)
+        import notify as _nt
+        _nt.ensure_schema(_c)
+        import refunds as _rf
+        _rf.ensure_schema(_c)
     seed_passwords()
     seed_data()
     V.persist(force=True)
+    import notify as _nt
+    _nt.mark_dirty()                      # 1.6: prepare reminder mails for this user
     # statement copies left in uploads/ by unfinished imports are erased after a day
     import time as _t
     for f in UPLOAD_DIR.rglob('*'):
@@ -665,6 +674,68 @@ import mailreader  # noqa: E402     (1.5: the Hub's own mailbox — IMAP)
 mailreader.register(app, get_db, UPLOAD_DIR, V)
 import auth  # noqa: E402         (1.2: users, login, lock)
 auth.register(app, V, prepare_db)
+import help_hub  # noqa: E402     (1.6: user manual inside the app, design manual for administrators)
+help_hub.register(app)
+import notify  # noqa: E402       (1.6: payment reminders and the weekly dues report by e-mail)
+notify.register(app, get_db, V)
+import refunds  # noqa: E402      (1.6: failed & reversed payments, refund tracking)
+refunds.register(app, get_db)
+import features  # noqa: E402     (1.6: choose the features you use; add missing accounts)
+features.register(app, get_db, V)
+
+
+# ── 1.6: running in the background ─────────────────────────────────────────
+@app.route('/healthz')
+def healthz():
+    """Lets a second start of the launcher see that the Hub is already running (no data, no login needed)."""
+    return f'FinanceHub {HUB_VERSION}', 200, {'Content-Type': 'text/plain'}
+
+
+@app.route('/app/quit', methods=['POST'])
+def app_quit():
+    stop = app.config.get('HUB_SHUTDOWN')
+    if not stop:
+        flash('The Hub was started from a command window — close that window to stop it.', 'info')
+        return redirect(request.referrer or url_for('home'))
+    V.lock_now()
+    stop()
+    return redirect(url_for('app_stopped'))
+
+
+@app.route('/app/stopped')
+def app_stopped():
+    return render_template('auth_stopped.html')
+
+
+@app.route('/app/autostart', methods=['POST'])
+def app_autostart():
+    if getattr(g, 'role', None) != 'admin':
+        flash('Only an administrator can change this.', 'warning')
+        return redirect(url_for('users_page'))
+    setter = app.config.get('HUB_AUTOSTART_SET')
+    if setter and setter(request.form.get('on') == '1'):
+        flash('Start with Windows ' + ('turned on.' if request.form.get('on') == '1' else 'turned off.'), 'success')
+    else:
+        flash('Start with Windows can be changed only when the Hub runs from its shortcut (Windows).', 'warning')
+    return redirect(url_for('users_page'))
+
+
+@app.context_processor
+def _runtime_ctx():
+    get = app.config.get('HUB_AUTOSTART_GET')
+    bdir = BASE_DIR / 'backups'
+    backs = sorted(p.name for p in bdir.iterdir() if p.is_dir()) if bdir.is_dir() else []
+    kind = app.config.get('HUB_SERVER')
+    return {'hub_launcher': bool(app.config.get('HUB_LAUNCHER')),
+            'hub_autostart': (get() if get else None),
+            'hub_server_kind': ({'waitress': 'Waitress (production server), in the background',
+                                 'werkzeug': 'built-in server, in the background'}.get(kind() if kind else '', '')),
+            'hub_backups': {'n': len(backs), 'last': backs[-1][:10] if backs else ''}}
+
+
+@app.errorhandler(500)
+def _server_error(e):
+    return render_template('auth_error.html'), 500
 
 
 def create_app():
@@ -674,4 +745,6 @@ def create_app():
 
 if __name__ == '__main__':
     print('Finance Hub ' + HUB_VERSION + ' — open http://127.0.0.1:5000 in your browser (this computer only).')
+    print('Tip: the FinanceHub shortcut (FinanceHub.pyw) runs the Hub in the background with a tray icon.')
+    notify.start_scheduler()
     app.run(debug=False, host='127.0.0.1', port=5000, threaded=False)
