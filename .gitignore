@@ -17,3 +17,6 @@ __pycache__/
 dist/
 requirements.lock
 financehub.json
+# Claude Code (per-user settings and notes)
+.claude/settings.local.json
+CLAUDE.local.md
